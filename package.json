@@ -1,21 +1,56 @@
 {
-  "name": "shell-js",
+  "name": "brsh",
   "version": "1.0.0",
-  "description": "",
+  "description": "A unix like shell written in javascript",
   "main": "index.js",
+  "browser": {
+    "Shell": "./index.js"
+  },
+  "bin": {
+    "exportFileSystem": "bin/exportFileSystem.js"
+  },
   "scripts": {
-    "start": "budo ./demo/demo.js -- -t brfs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "budo ./demo/demo.js",
+    "build": "npm run build:shell && npm run build:terminal",
+    "build:shell": "browserify ./index.js --standalone Shell -d -p bundle-collapser/plugin -p common-shakeify -g uglifyify | exorcist dist/shell.min.js.map > dist/shell.min.js",
+    "build:terminal": "browserify ./lib/terminal -x Shell -t browserify-shim --standalone Terminal -d -p bundle-collapser/plugin -p common-shakeify -g uglifyify | exorcist dist/terminal.min.js.map > dist/terminal.min.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/eliotstocker/Brsh-JS.git"
   },
   "author": "Eliot Stocker",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "devDependencies": {
     "brfs": "^2.0.2",
+    "browserify": "^16.5.0",
+    "browserify-css": "^0.15.0",
+    "browserify-shim": "^3.8.14",
     "budo": "^11.6.3",
-    "eslint": "^6.3.0"
+    "bundle-collapser": "^1.3.0",
+    "common-shakeify": "^0.6.2",
+    "exorcist": "^1.0.1",
+    "imgurify": "^2.0.1",
+    "readline": "^1.3.0",
+    "stringify": "^5.2.0",
+    "tmp": "^0.1.0",
+    "uglifyify": "^5.0.2"
   },
   "dependencies": {
+    "ansi-to-html": "^0.6.11",
+    "ansi_up": "^4.0.4",
     "command-line-args": "^5.1.1",
     "string.prototype.matchall": "^3.0.1"
+  },
+  "browserify": {
+    "transform": [
+      "brfs",
+      "browserify-css"
+    ]
+  },
+  "browserify-shim": {
+    "Shell": "global:Shell"
   }
 }

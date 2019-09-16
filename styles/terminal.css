@@ -1,0 +1,123 @@
+.terminal__cursor {
+    display: inline-block;
+}
+
+.terminal__cursor.blink {
+    animation: 1s blink 500ms step-end infinite;
+}
+
+.terminal__line {
+    white-space: pre-wrap;
+    min-height: 1.15em;
+    line-height: 1.15em;
+}
+
+@keyframes blink {
+    from, to {
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* setup default ansi colors */
+
+.ansi-black-fg {
+    color: rgb(0, 0, 0);
+}
+
+.ansi-black-bg {
+    background: rgb(0, 0, 0);
+}
+.ansi-red-fg {
+    color: rgb(187, 0, 0);
+}
+.ansi-red-bg {
+    background: rgb(187, 0, 0);
+}
+.ansi-green-fg {
+    color: rgb(0, 187, 0);
+}
+.ansi-green-bg {
+    background: rgb(0, 187, 0);
+}
+.ansi-yellow-fg {
+    color: rgb(187, 187, 0);
+}
+.ansi-yellow-bg {
+    background: rgb(187, 187, 0);
+}
+.ansi-blue-fg {
+    color: rgb(0, 0, 187);
+}
+.ansi-blue-bg {
+    background: rgb(0, 0, 187);
+}
+.ansi-magenta-fg {
+    color:rgb(187, 0, 187);
+}
+.ansi-magenta-bg {
+    background:rgb(187, 0, 187);
+}
+.ansi-cyan-fg {
+    color: rgb(0, 187, 187);
+}
+.ansi-cyan-bg {
+    background: rgb(0, 187, 187);
+}
+.ansi-white-fg {
+    color: rgb(255, 255, 255);
+}
+.ansi-white-bg {
+    background: rgb(255, 255, 255);
+}
+
+.ansi-bright-black-fg {
+    color: rgb(85,  85,  85);
+}
+.ansi-bright-black-bg {
+    background: rgb(85,  85,  85);
+}
+.ansi-bright-red-fg {
+    color: rgb(255,  85,  85);
+}
+.ansi-bright-red-bg {
+    background: rgb(255,  85,  85);
+}
+.ansi-bright-green-fg {
+    color: rgb( 0, 255,   0);
+}
+.ansi-bright-green-bg {
+    background: rgb( 0, 255,   0);
+}
+.ansi-bright-yellow-fg {
+    color: rgb(255, 255,  85);
+}
+.ansi-bright-yellow-bg {
+    background: rgb(255, 255,  85);
+}
+.ansi-bright-blue-fg {
+    color: rgb( 85,  85, 255);
+}
+.ansi-bright-blue-bg {
+    background: rgb( 85,  85, 255);
+}
+.ansi-bright-magenta-fg {
+    color: rgb(255,  85, 255);
+}
+.ansi-bright-magenta-bg {
+    background: rgb(255,  85, 255);
+}
+.ansi-bright-cyan-fg {
+    color: rgb( 85, 255, 255);
+}
+.ansi-bright-cyan-bg {
+    background: rgb( 85, 255, 255);
+}
+.ansi-bright-white-fg {
+    color: rgb(255, 255, 255);
+}
+.ansi-bright-white-bg {
+    background: rgb(255, 255, 255);
+}

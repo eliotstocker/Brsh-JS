@@ -24,7 +24,11 @@ class Shell extends EventEmitter {
         super();
         const {path = '/bin', profile, hostname = 'browser', filesystem = {}, cwd = '/'} = options;
 
-        this.context = new Context();
+        this.context = new Context(Object.assign({}, options, {
+            clearFn: this.clear.bind(this),
+            destroyFn: this.destroy.bind(this)
+        }));
+
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
         this.context.setFilesystem(filesystem);
@@ -32,17 +36,27 @@ class Shell extends EventEmitter {
 
         this._loadDefaultCommands();
         this._loadBuiltinCommands();
-        this.lastCode = 0;
+
+        this._lastCode = 0;
 
         if(profile) {
-            this.loadProfile(`source ${profile}`);
+            this._loadProfile(profile);
         } else {
-            this.emit('status', 'READY');
+            setTimeout(() => this.emit('status', Shell.STATUS_READY), 0);
         }
     }
 
     get path() {
         return this.context.getVar('PATH');
+    }
+
+    set lastCode(code) {
+        this.context.setVar('?', code);
+        this._lastCode = code;
+    }
+
+    get lastCode() {
+        return this._lastCode;
     }
 
     _loadDefaultCommands() {
@@ -57,18 +71,52 @@ class Shell extends EventEmitter {
         });
     }
 
-    loadProfile(profile) {
-        this.onCommand(profile);
+    _loadProfile(profile) {
+        this.onCommand(`source ${profile}`);
     }
 
-    onCommand(command) {
+    onCommand(raw, events = true) {
+        const commands = this._splitInput(raw);
+
+        const promise = commands.reduce((chain, command) => {
+            return chain.then(() => this._runCommand(command))
+                .then(() => {
+                    if(this._lastCode > 0) {
+                        throw new Error('chain broken');
+                    }
+                })
+        }, Promise.resolve());
+
+        if(events) {
+            return promise.then(() => {
+                if(!this.destroyed) {
+                    this.emit('status', Shell.STATUS_READY)
+                }
+            })
+                .catch(() => this.emit('status', Shell.STATUS_READY));
+        }
+
+        return promise;
+    }
+
+    tabCompletion(path) {
+        return this.context.fs.autoComplete(path);
+    }
+
+    _runCommand(command) {
+        if(command.length < 1) {
+            return Promise.resolve();
+        }
+
+        this.emit('status', Shell.STATUS_WORKING);
+
         let args = this._parseCommandLine(command);
         let bin = args.shift();
 
         //short circuit for aliases
         const alias = this.context.getAlias(bin);
         if(alias) {
-            return this.onCommand(alias);
+            return this.onCommand(alias, false);
         }
 
         let Cmd;
@@ -78,7 +126,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', e.message);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return this.emit('status', 'READY');
+            return Promise.resolve();
         }
 
         let instance;
@@ -90,7 +138,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', `${bin}: Command not found`);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return this.emit('status', 'READY');
+            return Promise.resolve();
         }
 
         if(instance.requiresFilesystem) {
@@ -107,7 +155,6 @@ class Shell extends EventEmitter {
             });
             this.lastCode = result.getExitCode();
             this.emit('exitCode', this.lastCode);
-            this.emit('status', 'READY');
         });
     }
 
@@ -116,11 +163,26 @@ class Shell extends EventEmitter {
         return `${this.context.getVar('HOST')}:${path[path.length -2]}$`;
     }
 
-    destroy(code) {
+    destroy(code = 0) {
         if(!this.destroyed) {
             this.destroyed = true;
+            this.emit('status', Shell.STATUS_DESTROYED);
             this.emit('exit', code);
         }
+    }
+
+    clear() {
+        this.emit('clear');
+    }
+
+    _splitInput(input) {
+        // remove anything after hash as its a comment;
+        let out = [input.split('#')[0]];
+
+        return out
+            .flatMap(item => item.split('&&'))
+            .flatMap(item => item.split(':'))
+            .flatMap(item => item.trim());
     }
 
     _parseCommand(command) {
@@ -144,13 +206,13 @@ class Shell extends EventEmitter {
 
             throw new Error(`${command}: permission denied`);
         }
-        const Command = this.context.getCommand(command);
+        const cmd = this.context.getCommand(command);
 
-        if(!Command) {
+        if(!cmd) {
             throw new Error(`${command}: Command not found`);
         }
 
-        return Command;
+        return cmd;
     }
 
     _parseCommandLine(string) {
@@ -223,6 +285,12 @@ class Shell extends EventEmitter {
         return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 }
+
+Shell.STATUS_READY = 'READY';
+Shell.STATUS_WORKING = 'WORKING';
+Shell.STATUS_DESTROYED = 'DESTROYED';
+
+Shell.Command = Command;
 
 global.shell = Shell;
 module.exports = Shell;
