@@ -1,0 +1,21 @@
+{
+  "name": "shell-js",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "budo ./demo/demo.js -- -t brfs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Eliot Stocker",
+  "license": "MIT",
+  "devDependencies": {
+    "brfs": "^2.0.2",
+    "budo": "^11.6.3",
+    "eslint": "^6.3.0"
+  },
+  "dependencies": {
+    "command-line-args": "^5.1.1",
+    "string.prototype.matchall": "^3.0.1"
+  }
+}
