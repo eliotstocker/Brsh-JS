@@ -1,7 +1,7 @@
 # BRowserSHell (brsh)
 An extensible shell written in Javascript with an accompanying terminal emulator
 
-[Demo](http://eliotstocker.github.io/Shell.js/)
+[Demo](http://eliotstocker.github.io/Brsh-JS/)
 
 ## What is it?
 A Unix like Shell backend and Terminal Emulator that allows you top create a Terminal within you webapp.
@@ -18,8 +18,8 @@ No idea, you tell me
 # How?
 To create a new terminal first add both Terminal and Shell to your page like so:
 ```html
-<script src="//unpkg.com/brsh@1.0.0/dist/shell.min.js"></script>
-<script src="//unpkg.com/brsh@1.0.0/dist/terminal.min.js"></script>
+<script src="//unpkg.com/brsh@1/dist/shell.min.js"></script>
+<script src="//unpkg.com/brsh@1/dist/terminal.min.js"></script>
 ```
 
 You man also use terminal as a node module if you are bundling your code with something like browserify etc
