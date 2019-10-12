@@ -1,6 +1,6 @@
 {
   "name": "brsh",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A unix like shell written in javascript",
   "main": "index.js",
   "browser": {
@@ -18,8 +18,8 @@
     "prepublishOnly": "npm run build"
   },
   "repository": {
-    "type" : "git",
-    "url" : "https://github.com/eliotstocker/Brsh-JS.git"
+    "type": "git",
+    "url": "https://github.com/eliotstocker/Brsh-JS.git"
   },
   "author": "Eliot Stocker",
   "license": "GPL-3.0",
