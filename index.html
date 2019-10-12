@@ -1,0 +1,23 @@
+<html>
+    <head>
+        <title>BRowerSHell Demo</title>
+        <script src="//unpkg.com/brsh@1/dist/shell.min.js"></script>
+        <script src="//unpkg.com/brsh@1/dist/terminal.min.js"></script>
+        <script src="fs.js"></script>
+    </head>
+    <body>
+        <script>
+            'use strict';
+
+            const term = new Terminal({
+                el: document.body,
+                profile: '/root/.profile',
+                cwd: '/root',
+                filesystem,
+                cursor: 'blink',
+                outputAnimation: 'type',
+                animateSpeed: 2
+            });
+        </script>
+    </body>
+</html>
