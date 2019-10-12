@@ -1,4 +1,6 @@
 # BRowserSHell (brsh)
+[![npm version](https://badge.fury.io/js/brsh.svg)](https://badge.fury.io/js/brsh)
+
 An extensible shell written in Javascript with an accompanying terminal emulator
 
 [Demo](http://eliotstocker.github.io/Brsh-JS/)
@@ -25,7 +27,7 @@ To create a new terminal first add both Terminal and Shell to your page like so:
 You man also use terminal as a node module if you are bundling your code with something like browserify etc
 Install the module via NPM:
 ```shell script
-npm i shell.js
+npm i brsh
 ```
 
 require the module in your code:

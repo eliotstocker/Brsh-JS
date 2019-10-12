@@ -1,5 +1,5 @@
 #!/sh.js
-export NAME="shell.js"
+export NAME="BRowserSHell"
 alias hi='echo "my name is $NAME"'
 
 cat /root/motd
