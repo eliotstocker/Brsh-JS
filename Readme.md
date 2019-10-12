@@ -1,4 +1,4 @@
-# Shell.js
+# BRowserSHell (brsh)
 An extensible shell written in Javascript with an accompanying terminal emulator
 
 [Demo](http://eliotstocker.github.io/Shell.js/)
@@ -18,8 +18,8 @@ No idea, you tell me
 # How?
 To create a new terminal first add both Terminal and Shell to your page like so:
 ```html
-<script src="//unpkg.com/shell.js@1.0.0/dist/shell.min.js"></script>
-<script src="//unpkg.com/shell.js@1.0.0/dist/terminal.min.js"></script>
+<script src="//unpkg.com/brsh@1.0.0/dist/shell.min.js"></script>
+<script src="//unpkg.com/brsh@1.0.0/dist/terminal.min.js"></script>
 ```
 
 You man also use terminal as a node module if you are bundling your code with something like browserify etc
@@ -30,7 +30,7 @@ npm i shell.js
 
 require the module in your code:
 ```js
-const Terminal = require('shell.js/lib/Terminal');
+const Terminal = require('brsh/lib/Terminal');
 ```
 
 you may then implement the terminal like so:
@@ -71,7 +71,7 @@ The Terminal constructor Options extend those of the Shell:
 you may also wish to implement your own terminal emulator, are use the Shell directly within node CLI
 in which case you can use just Shell by requiring:
 ```js
-const Shell = require('shell.js');
+const Shell = require('brsh');
 ```
 
 the Shell class can be implemented like so:
