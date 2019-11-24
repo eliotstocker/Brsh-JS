@@ -13,7 +13,6 @@ No idea, you tell me
 
 ## Known Issues
 * Input on android is not working
-* some tab completion isn't working quite right
 * scripting isn't complete yet, if, while etc not implemented
 * commands cant currently stream output, it is only returned once the app process finishes
 
