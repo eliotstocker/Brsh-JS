@@ -100,7 +100,7 @@ class Shell extends EventEmitter {
     }
 
     tabCompletion(path) {
-        return this.context.fs.autoComplete(path);
+        return this.context.fs.autoComplete(path, this.path);
     }
 
     _runCommand(command) {
