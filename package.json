@@ -1,6 +1,6 @@
 {
   "name": "brsh",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A unix like shell written in javascript",
   "main": "index.js",
   "browser": {
