@@ -7,11 +7,10 @@ const cla = require('command-line-args');
 const tmp = require('tmp');
 
 //build deps
-const browserify = require('browserify');
-const stringify = require('stringify');
-const imgurify = require('imgurify');
-const uglifyify = require('uglifyify');
-const bundleCollapser = require('bundle-collapser/plugin');
+const webpack = require('webpack-stream');
+const wp = require('webpack');
+const through = require('through2');
+const NodePolyfillPlugin = require("node-polyfill-webpack-plugin");
 
 const ignore = ['.DS_Store'];
 
@@ -118,25 +117,100 @@ const tf = tmp.fileSync({
 //create Temp File for JS
 fs.writeFileSync(tf.name, JS);
 
-//bundle all files into a single JS File
-const b = browserify(tf.name, {
-    standalone: options.variable
-})
-    .transform(stringify, {
-        appliesTo: {
-            excludeExtensions: ['.js', '.jpg', '.bmp', '.svg', '.png']
-        }
-    })
-    .transform(imgurify)
-    .plugin(bundleCollapser);
+const env = {
+    NODE_ENV: 'production',
+    COLORTERM: 'truecolor',
+    TERM: 'color',
+    FORCE_HYPERLINK: 'true'
+};
 
-if(!options.pretty) {
-    b.transform(uglifyify, {global: true});
+function getAllEnv() {
+    return Object.entries(env).reduce((acc, [key, value]) => {
+        return {
+            [`process.env.${key}`]: value,
+            ...acc
+        }
+    }, {
+        'process.env': JSON.stringify(env),
+        'process.stdout': JSON.stringify({
+            isTTY: true
+        })
+    });
 }
+
+const w = webpack({
+    mode: 'production',
+    entry: {
+        fs: tf.name,
+    },
+    output: {
+        library: {
+            name: 'fs',
+            type: 'var',
+        },
+        filename: '[name].js'
+    },
+    module: {
+        rules: [
+            {
+                test: /\.(?:gif|png|jpg|jpeg|bmp)$/i,
+                type: 'asset/inline',
+            },
+            {
+                test: function (modulePath) {
+                    const handledExtensions = ['gif', 'png', 'jpg', 'jpeg', 'bmp', 'js'];
+
+                    const handled = handledExtensions.reduce((acc, ext) => {
+                        if(acc) {
+                            return true;
+                        }
+
+                        if(modulePath.endsWith(ext)) {
+                            return true;
+                        }
+
+                        return false;
+                    }, false);
+
+                    return !handled;
+                },
+                type: 'asset/source'
+            },
+        ],
+    },
+    plugins: [
+        new wp.DefinePlugin(getAllEnv()),
+        new NodePolyfillPlugin({
+            excludeAliases: ["console"]
+        }),
+    ],
+    optimization: {
+        minimize: !options.pretty,
+    },
+    resolve: {
+        fallback: {
+            fs: false,
+            net: false,
+        },
+        //these are for chalk so that the ansi checking passes
+        alias: {
+            'supports-color': 'supports-color/index',
+            'supports-hyperlinks': 'supports-hyperlinks/index',
+        }
+    }
+}, wp);
+
+const filePipe = through.obj(function (file, enc, cb) {
+    if (file.path.endsWith('.js')) {
+        this.push(file.contents);
+    }
+
+    cb();
+});
 
 if(options.output) {
     const fileStream = fs.createWriteStream(options.output);
-    b.bundle().pipe(fileStream);
+    w.pipe(filePipe).pipe(fileStream);
 } else {
-    b.bundle().pipe(process.stdout);
+    w.pipe(filePipe).pipe(process.stdout);
 }
