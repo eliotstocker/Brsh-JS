@@ -12,12 +12,13 @@ it will travers the directory structure from the provided base path, and import 
 
 ## CLI options 
 
-| name     | alias | variable      | description |
-| ----     | ----- | --------      | ----------- |
-| root     |       | `String` path | also the default option, this is the path to the root of your file system |
-| variable | v     | `String` name | final variable output name for instance if set to `filesystem` when this file is loaded in a browser it will be accessible at `window.filesystem` |
-| output   | o     | `String` path | path for the output javascript file (if not set will output to stdout) |
-| pretty   | p     |               | if pretty is set we will disable code uglification and pretify the json directory structure | 
+| name       | alias | variable      | description |
+| ----       | ----- | --------      | ----------- |
+| root       |       | `String` path | also the default option, this is the path to the root of your file system |
+| variable   | v     | `String` name | final variable output name for instance if set to `filesystem` when this file is loaded in a browser it will be accessible at `window.filesystem` |
+| output     | o     | `String` path | path for the output javascript file (if not set will output to stdout) |
+| pretty     | p     |               | if pretty is set we will disable code uglification and pretify the json directory structure | 
+| hyperlinks | h     |               | enable experimental hyperlink support for application (this will pass through an environment variable to your filesystem FORCE_HYPERLINK some libraries will pick up on this and pass back ansi links) |
 
 ## how does it work
 

@@ -14,7 +14,7 @@ No idea, you tell me
 ## Known Issues
 * Input on android is not working
 * scripting isn't complete yet, if, while etc not implemented
-* commands cant currently stream output, it is only returned once the app process finishes
+* commands can't currently stream output, it is only returned once the app process finishes
 
 # How?
 To create a new terminal first add both Terminal and Shell to your page like so:
@@ -64,9 +64,9 @@ The Terminal constructor Options extend those of the Shell:
 | option          | required | default       | description |
 | ------          | -------- | -------       | ----------- |
 | path            | No       | '/bin'        | path in which to look for (and add default entries) binaries |
-| profile         | No       |               | a script to run before user interactivity (see [scripts](#writing-scripts)) |
+| profile          | No       |               | a script to run before user interactivity (see [scripts](#writing-scripts)) |
 | hostname        | No       | 'browser'     | the hostname of the instance, by default the included terminal emulator shows this as the prompt text|
-| filesystem      | No       | {}            | an object to represent the file system, any classes that extend Command will be treated as binaries it is probably best to use the included [exportFileSystem](bin/Readme.md) cli application to convert a directory to a filesystem object |
+| filesystem       | No       | {}            | an object to represent the file system, any classes that extend Command will be treated as binaries it is probably best to use the included [exportFileSystem](bin/Readme.md) cli application to convert a directory to a filesystem object |
 | cwd             | No       | '/'           | the starting CWD for the shell, this affects relative paths to files, binaries and directories just like in any other shell |
 
 you may also wish to implement your own terminal emulator, are use the Shell directly within node CLI

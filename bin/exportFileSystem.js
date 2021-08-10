@@ -38,6 +38,11 @@ try {
             name: "pretty",
             alias: "p",
             type: Boolean
+        },
+        {
+            name: "hyperlinks"
+            alias: "h",
+            type: Boolean
         }
     ]);
 } catch(e) {
@@ -121,8 +126,16 @@ const env = {
     NODE_ENV: 'production',
     COLORTERM: 'truecolor',
     TERM: 'color',
-    FORCE_HYPERLINK: 'true'
 };
+
+if(options.hyperlinks) {
+    env.FORCE_HYPERLINK = 'true'
+}
+
+const process = {
+    argv: [],
+    env
+}
 
 function getAllEnv() {
     return Object.entries(env).reduce((acc, [key, value]) => {
@@ -131,6 +144,7 @@ function getAllEnv() {
             ...acc
         }
     }, {
+        'process': `(${JSON.stringify(process)})`,
         'process.env': JSON.stringify(env),
         'process.stdout': JSON.stringify({
             isTTY: true
@@ -181,7 +195,7 @@ const w = webpack({
     plugins: [
         new wp.DefinePlugin(getAllEnv()),
         new NodePolyfillPlugin({
-            excludeAliases: ["console"]
+            excludeAliases: ['console', 'tty']
         }),
     ],
     optimization: {
@@ -191,11 +205,12 @@ const w = webpack({
         fallback: {
             fs: false,
             net: false,
+            tty: require.resolve('./tty-shim.js')
         },
         //these are for chalk so that the ansi checking passes
         alias: {
             'supports-color': 'supports-color/index',
-            'supports-hyperlinks': 'supports-hyperlinks/index',
+            'supports-hyperlinks': 'supports-hyperlinks/index'
         }
     }
 }, wp);
