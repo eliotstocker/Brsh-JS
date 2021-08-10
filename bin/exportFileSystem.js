@@ -132,25 +132,20 @@ if(options.hyperlinks) {
     env.FORCE_HYPERLINK = 'true'
 }
 
-const process = {
-    argv: [],
-    env
-}
-
-function getAllEnv() {
-    return Object.entries(env).reduce((acc, [key, value]) => {
-        return {
-            [`process.env.${key}`]: value,
-            ...acc
-        }
-    }, {
-        'process': `(${JSON.stringify(process)})`,
-        'process.env': JSON.stringify(env),
-        'process.stdout': JSON.stringify({
-            isTTY: true
-        })
-    });
-}
+// function getAllEnv() {
+//     return Object.entries(env).reduce((acc, [key, value]) => {
+//         return {
+//             [`process.env.${key}`]: value,
+//             ...acc
+//         }
+//     }, {
+//         'process': `(${JSON.stringify(process)})`,
+//         'process.env': JSON.stringify(env),
+//         'process.stdout': JSON.stringify({
+//             isTTY: true
+//         })
+//     });
+// }
 
 const w = webpack({
     mode: 'production',
@@ -193,10 +188,15 @@ const w = webpack({
         ],
     },
     plugins: [
-        new wp.DefinePlugin(getAllEnv()),
-        new NodePolyfillPlugin({
-            excludeAliases: ['console', 'tty']
+        new wp.DefinePlugin({
+            __BUILD_ENV: JSON.stringify(env)
         }),
+        new wp.ProvidePlugin({
+            process: require.resolve('./shims/process-shim.js')
+        }),
+        new NodePolyfillPlugin({
+            excludeAliases: ['console', 'tty', 'process']
+        })
     ],
     optimization: {
         minimize: !options.pretty,
@@ -205,7 +205,8 @@ const w = webpack({
         fallback: {
             fs: false,
             net: false,
-            tty: require.resolve('./tty-shim.js')
+            process: require.resolve('./shims/process-shim.js'),
+            tty: require.resolve('./shims/tty-shim.js')
         },
         //these are for chalk so that the ansi checking passes
         alias: {
