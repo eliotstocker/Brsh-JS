@@ -40,7 +40,7 @@ try {
             type: Boolean
         },
         {
-            name: "hyperlinks"
+            name: "hyperlinks",
             alias: "h",
             type: Boolean
         }
