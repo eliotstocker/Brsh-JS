@@ -37,7 +37,7 @@
     "uglifyify": "^5.0.2"
   },
   "dependencies": {
-    "ansi_up": "^5.0.1",
+    "ansi_up": "git+https://github.com/eliotstocker/ansi_up.git",
     "command-line-args": "^5.1.1",
     "node-polyfill-webpack-plugin": "^1.1.4",
     "string.prototype.matchall": "^3.0.1",
