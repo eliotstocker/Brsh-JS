@@ -128,24 +128,14 @@ const env = {
     TERM: 'color',
 };
 
+const alias = {
+    'supports-color': 'supports-color/index',
+};
+
 if(options.hyperlinks) {
     env.FORCE_HYPERLINK = 'true'
+    alias['supports-hyperlinks'] = 'supports-hyperlinks/index'
 }
-
-// function getAllEnv() {
-//     return Object.entries(env).reduce((acc, [key, value]) => {
-//         return {
-//             [`process.env.${key}`]: value,
-//             ...acc
-//         }
-//     }, {
-//         'process': `(${JSON.stringify(process)})`,
-//         'process.env': JSON.stringify(env),
-//         'process.stdout': JSON.stringify({
-//             isTTY: true
-//         })
-//     });
-// }
 
 const w = webpack({
     mode: 'production',
@@ -208,11 +198,7 @@ const w = webpack({
             process: require.resolve('./shims/process-shim.js'),
             tty: require.resolve('./shims/tty-shim.js')
         },
-        //these are for chalk so that the ansi checking passes
-        alias: {
-            'supports-color': 'supports-color/index',
-            'supports-hyperlinks': 'supports-hyperlinks/index'
-        }
+        alias
     }
 }, wp);
 
