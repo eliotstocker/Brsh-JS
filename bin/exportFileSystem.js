@@ -144,7 +144,7 @@ const w = webpack({
     },
     output: {
         library: {
-            name: 'fs',
+            name: options.variable,
             type: 'var',
         },
         filename: '[name].js'
