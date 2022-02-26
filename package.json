@@ -43,7 +43,7 @@
     "string.prototype.matchall": "^3.0.1",
     "through2": "^4.0.2",
     "tmp": "^0.1.0",
-    "webpack": "^5.49.0",
+    "webpack": "^5.68.0",
     "webpack-stream": "^6.1.2"
   },
   "browserify": {
