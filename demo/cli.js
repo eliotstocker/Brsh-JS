@@ -42,3 +42,7 @@ const rl = readline.createInterface({
 rl.on('line', function(line){
     shell.onCommand(line);
 });
+
+process.stdin.on('keypress', (str) => {
+    shell.onInput(str);
+});

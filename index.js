@@ -59,6 +59,13 @@ class Shell extends EventEmitter {
         return this._lastCode;
     }
 
+    onInput(char) {
+        if(this.runningCommand && this.runningCommand.onInput && this.runningCommand.captureInput) {
+            this.runningCommand.onInput(char);
+            return true;
+        }
+    }
+
     _loadDefaultCommands() {
         localCommands.forEach(command => {
             this.context.setCommand(command);
@@ -145,16 +152,28 @@ class Shell extends EventEmitter {
             instance.fs = this.context.fs;
         }
 
+        this.runningCommand = instance;
+        if(this.runningCommand.on) {
+            this.runningCommand.on('flush', lines => {
+                this._emitOutput(lines);
+            })
+        }
+
         return instance.runCommand().then(result => {
-            result.getStdOutput().forEach(line => {
-                if(line.type === 'out') {
-                    this.emit('stdOut', line.string);
-                } else if(line.type === 'err') {
-                    this.emit('stdErr', line.string);
-                }
-            });
+            this._emitOutput(result.getStdOutput());
             this.lastCode = result.getExitCode();
             this.emit('exitCode', this.lastCode);
+            delete this.runningCommand;
+        });
+    }
+
+    _emitOutput(lines) {
+        lines.forEach(({type, string}) => {
+            if(type === 'out') {
+                this.emit('stdOut', string);
+            } else if(type === 'err') {
+                this.emit('stdErr', string);
+            }
         });
     }
 
@@ -181,7 +200,6 @@ class Shell extends EventEmitter {
 
         return out
             .flatMap(item => item.split('&&'))
-            .flatMap(item => item.split(':'))
             .flatMap(item => item.trim());
     }
 
