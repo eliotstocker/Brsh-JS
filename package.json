@@ -42,7 +42,7 @@
     "node-polyfill-webpack-plugin": "^1.1.4",
     "string.prototype.matchall": "^3.0.1",
     "through2": "^4.0.2",
-    "tmp": "^0.1.0",
+    "tmp": "^0.2.1",
     "webpack": "^5.49.0",
     "webpack-stream": "^6.1.2"
   },
