@@ -9,6 +9,7 @@ const Command = require('./lib/Command');
 
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
+const blocks = require("./lib/blocks");
 
 const variableRegex = /\${?([\w\d]+)}?/g;
 
@@ -38,6 +39,7 @@ class Shell extends EventEmitter {
         this._loadBuiltinCommands();
 
         this._lastCode = 0;
+        this._inputBuffer = [];
 
         if(profile) {
             this._loadProfile(profile);
@@ -64,6 +66,8 @@ class Shell extends EventEmitter {
             this.runningCommand.onInput(char);
             return true;
         }
+
+        return false;
     }
 
     _loadDefaultCommands() {
@@ -86,18 +90,40 @@ class Shell extends EventEmitter {
         const commands = this._splitInput(raw);
 
         const promise = commands.reduce((chain, command) => {
-            return chain.then(() => this._runCommand(command))
+            return chain.then(() => {
+                let link = Promise.resolve();
+                if(!this._updateCurrentBlock(command, !events)) {
+                    link = this._runCommand(command);
+                }
+
+                // Dont block input for command blocks that are not complete
+                if(this.runningCommand && this.runningCommand.captureLines && this.runningCommand.parsePromise) {
+                    return this.runningCommand.parsePromise.then(() => {
+                        if (!this.runningCommand.blockComplete) {
+                            return Promise.resolve();
+                        }
+                        return link;
+                    })
+                }
+
+                return link;
+            })
                 .then(() => {
                     if(this._lastCode > 0) {
                         throw new Error('chain broken');
                     }
+                }).catch(e => {
+                    console.error(e);
                 })
         }, Promise.resolve());
 
         if(events) {
             return promise.then(() => {
                 if(!this.destroyed) {
-                    this.emit('status', Shell.STATUS_READY)
+                    if(this.runningCommand && this.runningCommand.captureLines && !this.runningCommand.blockComplete) {
+                        return this.emit('status', Shell.STATUS_INTERACTIVE);
+                    }
+                    this.emit('status', Shell.STATUS_READY);
                 }
             })
                 .catch(() => this.emit('status', Shell.STATUS_READY));
@@ -113,6 +139,12 @@ class Shell extends EventEmitter {
     _runCommand(command) {
         if(command.length < 1) {
             return Promise.resolve();
+        }
+
+        const block = this._parseBlock(command);
+
+        if(block) {
+            return this._runBlock(block, command);
         }
 
         this.emit('status', Shell.STATUS_WORKING);
@@ -167,6 +199,30 @@ class Shell extends EventEmitter {
         });
     }
 
+    _runBlock(block, command) {
+        this.runningCommand = new block(command, this.context);
+
+        return this.runningCommand.runBlock().then(result => {
+            this._emitOutput(result.getStdOutput());
+            this.lastCode = result.getExitCode();
+            this.emit('exitCode', this.lastCode);
+            delete this.runningCommand;
+        });
+    }
+
+    _updateCurrentBlock(line, events) {
+        if(this.runningCommand && this.runningCommand.captureLines && !this.runningCommand.blockComplete) {
+            this.runningCommand.onLine(line);
+
+            return true;
+        }
+        return false;
+    }
+
+    _parseBlock(command) {
+        return blocks.find(blockType => blockType.matchBlock(command));
+    }
+
     _emitOutput(lines) {
         lines.forEach(({type, string}) => {
             if(type === 'out') {
@@ -178,6 +234,9 @@ class Shell extends EventEmitter {
     }
 
     getPrompt() {
+        if(this.runningCommand) {
+            return ">"
+        }
         const path = this.context.fs.cwd.split('/');
         return `${this.context.getVar('HOST')}:${path[path.length -2]}$`;
     }
@@ -200,6 +259,7 @@ class Shell extends EventEmitter {
 
         return out
             .flatMap(item => item.split('&&'))
+            .flatMap(item => item.split(';'))
             .flatMap(item => item.trim());
     }
 
@@ -306,6 +366,7 @@ class Shell extends EventEmitter {
 
 Shell.STATUS_READY = 'READY';
 Shell.STATUS_WORKING = 'WORKING';
+Shell.STATUS_INTERACTIVE = 'WORKING_INTERACTIVE';
 Shell.STATUS_DESTROYED = 'DESTROYED';
 
 Shell.Command = Command;
