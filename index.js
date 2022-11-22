@@ -39,7 +39,6 @@ class Shell extends EventEmitter {
         this._loadBuiltinCommands();
 
         this._lastCode = 0;
-        this._inputBuffer = [];
 
         if(profile) {
             this._loadProfile(profile);
@@ -92,14 +91,14 @@ class Shell extends EventEmitter {
         const promise = commands.reduce((chain, command) => {
             return chain.then(() => {
                 let link = Promise.resolve();
-                if(!this._updateCurrentBlock(command, !events)) {
+                if(!this._updateCurrentBlock(command)) {
                     link = this._runCommand(command);
                 }
 
                 // Dont block input for command blocks that are not complete
                 if(this.runningCommand && this.runningCommand.captureLines && this.runningCommand.parsePromise) {
                     return this.runningCommand.parsePromise.then(() => {
-                        if (!this.runningCommand.blockComplete) {
+                        if (this.runningCommand && !this.runningCommand.blockComplete) {
                             return Promise.resolve();
                         }
                         return link;
@@ -200,7 +199,7 @@ class Shell extends EventEmitter {
     }
 
     _runBlock(block, command) {
-        this.runningCommand = new block(command, this.context);
+        this.runningCommand = new block(this._replaceVariables(command), this.context);
 
         return this.runningCommand.runBlock().then(result => {
             this._emitOutput(result.getStdOutput());
@@ -210,10 +209,9 @@ class Shell extends EventEmitter {
         });
     }
 
-    _updateCurrentBlock(line, events) {
+    _updateCurrentBlock(line) {
         if(this.runningCommand && this.runningCommand.captureLines && !this.runningCommand.blockComplete) {
-            this.runningCommand.onLine(line);
-
+            this.runningCommand.onLine(this._replaceVariables(line));
             return true;
         }
         return false;
