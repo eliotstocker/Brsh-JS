@@ -1,0 +1,100 @@
+#!/bin/sh
+
+echo "starting test script..."
+
+read -n 1 -p "Continue simple 'if' test? or Exit (y=yes / n=no)" CONTINUE
+
+if [[ $CONTINUE == "y" ]]
+then
+    echo "Nice!"
+elif [[ $CONTINUE == "n" ]]
+then
+    echo "ok bye!"
+    exit
+else
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+echo "You continued!"
+
+read -n 1 -p "Continue nested 'if' test? or Exit (y=yes / n=no)" CONTINUE
+
+if [[ "$CONTINUE" == "y" ]]
+then
+    echo "A bit more complicated now!"
+    read -n 1 -p "Are you sure? or Exit (y=yes / n=no)" SURE
+    if [[ $SURE == "y" ]]
+    then
+        echo "excellent"
+    elif [[ $SURE == "n" ]]
+    then
+        echo "no problem!"
+        exit
+    else
+        echo "unknown option selected: $SURE"
+        exit 1
+    fi
+elif [[ "$CONTINUE" == "n" ]]
+then
+    echo "ok bye!"
+    exit
+else
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+echo "You continued and then confirmed!"
+
+read -n 1 -p "continue simple 'while' test? (y=yes /n=no)" CONTINUE
+
+if [[ $CONTINUE == "n" ]]
+then
+    echo "ok bye!"
+    exit
+elif [[ $CONTINUE != "y" ]]
+then
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+while [[ "$DOIT" != "c" ]]
+do
+    read -n 1 -p "type 'c' to end, any other character to keep looping:" DOIT
+    echo "Pressed: $DOIT"
+done
+
+echo "While loop ended!"
+unset DOIT
+
+read -n 1 -p "continue complex 'while' test? (y=yes /n=no)" CONTINUE
+
+if [[ "$CONTINUE" == "n" ]]
+then
+    echo "ok bye!"
+    exit
+elif [[ "$CONTINUE" != "y" ]]
+then
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+while [[ $DOIT != "c" ]]
+do
+    while [[ $READY != "y" ]]
+    do
+        echo "Inner Loop"
+        read -n 1 -p "Are You ready? (y/n)" READY
+        if [[ $READY == "y" ]]
+        then
+            echo "YOU ARE READY!"
+        else
+            echo "YOU ARE NOT READY!!!"
+        fi
+    done
+    echo "Outer Loop"
+    read -n 1 -p "type 'c' to end, any other character to keep looping:" DOIT
+    echo "Pressed: $DOIT"
+done
+
+echo "Nested while loops ended!"

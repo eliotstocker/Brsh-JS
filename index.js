@@ -25,10 +25,10 @@ class Shell extends EventEmitter {
         super();
         const {path = '/bin', profile, hostname = 'browser', filesystem = {}, cwd = '/'} = options;
 
-        this.context = new Context(Object.assign({}, options, {
-            clearFn: this.clear.bind(this),
-            destroyFn: this.destroy.bind(this)
-        }));
+        this.context = new Context(Object.assign({}, options));
+
+        this.context.on('clear', this.clear.bind(this));
+        this.context.on('destroy', this.destroy.bind(this));
 
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
@@ -62,8 +62,7 @@ class Shell extends EventEmitter {
 
     onInput(char) {
         if(this.runningCommand && this.runningCommand.onInput && this.runningCommand.captureInput) {
-            this.runningCommand.onInput(char);
-            return true;
+            return this.runningCommand.onInput(char);
         }
 
         return false;
@@ -199,7 +198,13 @@ class Shell extends EventEmitter {
     }
 
     _runBlock(block, command) {
-        this.runningCommand = new block(this._replaceVariables(command), this.context);
+        this.runningCommand = new block(command, this.context);
+
+        if(this.runningCommand.on) {
+            this.runningCommand.on('flush', lines => {
+                this._emitOutput(lines);
+            })
+        }
 
         return this.runningCommand.runBlock().then(result => {
             this._emitOutput(result.getStdOutput());
@@ -211,7 +216,7 @@ class Shell extends EventEmitter {
 
     _updateCurrentBlock(line) {
         if(this.runningCommand && this.runningCommand.captureLines && !this.runningCommand.blockComplete) {
-            this.runningCommand.onLine(this._replaceVariables(line));
+            this.runningCommand.onLine(line);
             return true;
         }
         return false;
@@ -309,11 +314,15 @@ class Shell extends EventEmitter {
     }
 
     _replaceVariables(part) {
+        return Shell.replaceVariables(this.context, part);
+    }
+
+    static replaceVariables(context, part, defaultVal = '') {
         const matches = part.matchAll(variableRegex);
 
         let match = matches.next();
         while (!match.done) {
-            const value = this.context.getVar(match.value[1]);
+            const value = context.getVar(match.value[1], defaultVal);
             part = part.replace(new RegExp(Shell._escapeRegExp(match.value[0]), 'g'), value);
             match = matches.next();
         }
