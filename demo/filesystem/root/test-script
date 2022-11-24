@@ -1,6 +1,26 @@
-#!/bin/sh
+#!/bin/bash
 
 echo "starting test script..."
+
+function testFunction1 {
+    echo "Function Test 1 | Success"
+}
+
+testFunction2() {
+    echo "Function Test 2 | Success - $1"
+}
+
+testFunction3() { echo "Function Test 3 | Success"; export SET_IN_FUNC=TRUE; }
+
+testFunction1
+testFunction2 "more complex"
+testFunction3
+
+if [[ $SET_IN_FUNC != "TRUE" ]]
+then
+    echo "Variables set in functions should be updated on the global context | Failure"
+    exit 1
+fi
 
 read -n 1 -p "Continue simple 'if' test? or Exit (y=yes / n=no)" CONTINUE
 

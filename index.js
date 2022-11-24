@@ -5,6 +5,7 @@ const EventEmitter = require('events');
 const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
+const FunctionCommand = require('./lib/FunctionCommand');
 const Command = require('./lib/Command');
 
 const builtins = require('./lib/builtins');
@@ -158,7 +159,7 @@ class Shell extends EventEmitter {
 
         let Cmd;
         try {
-            Cmd = this._parseCommand(bin.toLowerCase());
+            Cmd = this._parseCommand(bin);
         } catch(e) {
             this.emit('stdErr', e.message);
             this.lastCode = 1;
@@ -287,9 +288,14 @@ class Shell extends EventEmitter {
 
             throw new Error(`${command}: permission denied`);
         }
-        const cmd = this.context.getCommand(command);
+        const cmd = this.context.getCommand(command.toLowerCase());
 
         if(!cmd) {
+            const fn = this.context.getFunction(command);
+            if(fn) {
+                return FunctionCommand.bind(this, fn);
+            }
+
             throw new Error(`${command}: Command not found`);
         }
 
