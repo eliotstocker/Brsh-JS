@@ -6,15 +6,14 @@ An extensible shell written in Javascript with an accompanying terminal emulator
 [Demo](http://eliotstocker.github.io/Brsh-JS/)
 
 ## What is it?
-A Unix like Shell backend and Terminal Emulator that allows you top create a Terminal within you webapp.
+A Unix like Shell backend and Terminal Emulator that allows you to create a Terminal within your webapp.
 
 ## Why?
-No idea, you tell me
+No idea, you tell me? for some reason I just really wanted it!
 
 ## Known Issues
 * Input on android is not working
-* scripting isn't complete yet, if, while etc not implemented
-* commands can't currently stream output, it is only returned once the app process finishes
+* scripting isn't 100% complete, but many things now work such as if, while, function etc are working in a bash compatible way.
 
 # How?
 To create a new terminal first add both Terminal and Shell to your page like so:
@@ -56,7 +55,7 @@ The Terminal constructor Options extend those of the Shell:
 | font            | No       | `Roboto Mono` | the name of a google webfont to load for the emulators console font, a monospace font is recommended |
 | cursor          | No       | `none`        | One of: `none`, `block`, `bink` if block or blink a cursor block character will show at the end of the current line, if bink this will animate with a simple blink |
 | outputAnimation | No       | `none`        | Out of: `none`, `type` if type is set each character will be appended in order as to animate a more retro style of console output |
-| animateSpeed    | No       | `1`           | number of frames to append per browser frame, the higher this number the faster the animation, i would recommend setting this higher than the default value of 1 |
+| animateSpeed    | No       | `1`           | number of characters to append per browser frame, the higher this number the faster the animation, I would recommend setting this higher than the default value of 1 |
 | onExit          | No       | `null`        | function to run should the Shell session be destroyed, whist no required, if this is not set and the user types exit, the terminal will then hang in an ended state |
 | mobileInput     | No       | `click`       | One of `none` or `click`, set to click to enable focus on the terminal (and show the onscreen keyboard on mobile |
 
@@ -64,9 +63,9 @@ The Terminal constructor Options extend those of the Shell:
 | option          | required | default       | description |
 | ------          | -------- | -------       | ----------- |
 | path            | No       | '/bin'        | path in which to look for (and add default entries) binaries |
-| profile          | No       |               | a script to run before user interactivity (see [scripts](#writing-scripts)) |
+| profile         | No       |               | a script to run before user interactivity (see [scripts](#writing-scripts)) |
 | hostname        | No       | 'browser'     | the hostname of the instance, by default the included terminal emulator shows this as the prompt text|
-| filesystem       | No       | {}            | an object to represent the file system, any classes that extend Command will be treated as binaries it is probably best to use the included [exportFileSystem](bin/Readme.md) cli application to convert a directory to a filesystem object |
+| filesystem      | No       | {}            | an object to represent the file system, any classes that extend Command will be treated as binaries it is probably best to use the included [exportFileSystem](bin/Readme.md) cli application to convert a directory to a filesystem object |
 | cwd             | No       | '/'           | the starting CWD for the shell, this affects relative paths to files, binaries and directories just like in any other shell |
 
 you may also wish to implement your own terminal emulator, are use the Shell directly within node CLI
@@ -101,7 +100,7 @@ the following methods and Events are available to interact with the shell instan
 | stdOut   | `String` line   | a single line of standard output from the shell to display to the user |
 | stdErr   | `String` line   | a single line of standard error from the shell to display to the user |
 | exitCode | `Number` code   | the exit code of any command run in the shell |
-| status   | `String` Status | Shell status, this should be listened to to check if commands can be accepted, state can be one of: Shell.STATUS_READY or Shell.STATUS_WORKING = 'WORKING', listen for Shell.STATUS_READY to show a prompt to use the user
+| status   | `String` Status | Shell status, this should be listened to to check if commands can be accepted, state can be one of: Shell.STATUS_READY or Shell.STATUS_WORKING = 'WORKING', listen for Shell.STATUS_READY to show a prompt to use the user |
 | clear    |                 | this event is fired to tell the Terminal emulator to clear the screen |
 | exit     | `Number` code   | this event if fired when the terminal is destroyed, the code contains the final status code from the shell instance |
 
@@ -122,6 +121,8 @@ these are in general simplified versions of what you will find in a standard uni
 * source
 * which
 * exit
+* read
+* unset
 
 ## adding new commands:
 new commands can be added by creating a class that extends Command, you can either access command as a Static property of Shell:
@@ -142,9 +143,20 @@ class Test extends Command {
 
 for more on writing commands [see the docs here](lib/Readme.md#extending-command)
 
+# blocks
+currently the following block types are supported:
+
+* if
+* for
+* while
+* case
+* function
+
+the snytax should more or less match bash, so when using these blocks in scripts you should be able to run the script in both bash and BRowserSHell
+
 ## Writing Scripts
 
-to create a script you must first set the Shebang interpreter to `#!/sh.js` as the first line of the file
+to create a script you must first set a Shebang interpreter for instance `#!/sh.js` or `#!/bin/bash` as the first line of the file
 
 you may then run any commands in the system which will run as part of the script.
 

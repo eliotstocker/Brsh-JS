@@ -263,8 +263,28 @@ class Shell extends EventEmitter {
 
         return out
             .flatMap(item => item.split('&&'))
-            .flatMap(item => item.split(';'))
+            .flatMap(this._splitByColon)
+            .filter(item => item !== ';')
             .flatMap(item => item.trim());
+    }
+
+    _splitByColon(input) {
+        const pattern = /;+/g;
+        let match;
+        let pointer = 0;
+        const output = [];
+        while(null != (match = pattern.exec(input))) {
+            if (match[0].length === 1) {
+                output.push(input.substring(pointer, match.index));
+                pointer = match.index + 1;
+            }
+        }
+
+        if(pointer < input.length) {
+            output.push(input.substring(pointer));
+        }
+
+        return output;
     }
 
     _parseCommand(command) {

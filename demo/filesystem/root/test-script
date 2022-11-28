@@ -118,3 +118,47 @@ do
 done
 
 echo "Nested while loops ended!"
+
+
+read -n 1 -p "continue simple 'case' test? (y=yes /n=no)" CONTINUE
+
+if [[ "$CONTINUE" == "n" ]]
+then
+    echo "ok bye!"
+    exit
+elif [[ "$CONTINUE" != "y" ]]
+then
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+case 2 in
+    1) echo "case selection incorrect | Failure"
+        ;;
+    2) echo "case selection correct | Success"
+        ;;
+    *) echo "case selection incorrect - defaulted | Failure"
+        ;;
+esac
+
+read -n 1 -p "continue complex 'case' test? (y=yes /n=no)" CONTINUE
+
+if [[ "$CONTINUE" == "n" ]]
+then
+    echo "ok bye!"
+    exit
+elif [[ "$CONTINUE" != "y" ]]
+then
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+export TEST_VALUE="test"
+
+case $TEST_VALUE in
+    'main') echo "incorrect value"
+        ;;
+    'test') echo "correct value | Success"
+        ;;
+    *) echo "should not get here | Failure"
+esac
