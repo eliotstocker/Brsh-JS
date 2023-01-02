@@ -7,6 +7,7 @@ const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
 const FunctionCommand = require('./lib/FunctionCommand');
 const Command = require('./lib/Command');
+const ChainLink = require('./lib/ChainLink');
 
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
@@ -88,33 +89,28 @@ class Shell extends EventEmitter {
     onCommand(raw, events = true) {
         const commands = this._splitInput(raw);
 
-        const promise = commands.reduce((chain, command) => {
-            return chain.then(() => {
-                let link = Promise.resolve();
-                if(!this._updateCurrentBlock(command)) {
-                    link = this._runCommand(command);
-                }
+        function run(command) {
+            let link = Promise.resolve();
+            if(!this._updateCurrentBlock(command)) {
+                link = this._runCommand(command);
+            }
 
-                // Dont block input for command blocks that are not complete
-                if(this.runningCommand && this.runningCommand.captureLines && this.runningCommand.parsePromise) {
-                    return this.runningCommand.parsePromise.then(() => {
-                        if (this.runningCommand && !this.runningCommand.blockComplete) {
-                            return Promise.resolve();
-                        }
-                        return link;
-                    })
-                }
-
-                return link;
-            })
-                .then(() => {
-                    if(this._lastCode > 0) {
-                        throw new Error('chain broken');
+            // Dont block input for command blocks that are not complete
+            if(this.runningCommand && this.runningCommand.captureLines && this.runningCommand.parsePromise) {
+                return this.runningCommand.parsePromise.then(() => {
+                    if (this.runningCommand && !this.runningCommand.blockComplete) {
+                        return Promise.resolve();
                     }
-                }).catch(e => {
-                    console.error(e);
+                    return link;
                 })
-        }, Promise.resolve());
+            }
+
+            return link;
+        }
+
+        console.log(commands);
+
+        const promise = commands.reduce((chain, command) => command.chain(chain, run.bind(this)), Promise.resolve());
 
         if(events) {
             return promise.then(() => {
@@ -164,7 +160,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', e.message);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return Promise.resolve();
+            return Promise.resolve(this.lastCode);
         }
 
         let instance;
@@ -176,7 +172,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', `${bin}: Command not found`);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return Promise.resolve();
+            return Promise.resolve(this.lastCode);
         }
 
         if(instance.requiresFilesystem) {
@@ -195,6 +191,7 @@ class Shell extends EventEmitter {
             this.lastCode = result.getExitCode();
             this.emit('exitCode', this.lastCode);
             delete this.runningCommand;
+            return this.lastCode;
         });
     }
 
@@ -262,29 +259,46 @@ class Shell extends EventEmitter {
         let out = [input.split('#')[0]];
 
         return out
-            .flatMap(item => item.split('&&'))
-            .flatMap(this._splitByColon)
-            .filter(item => item !== ';')
-            .flatMap(item => item.trim());
+            .flatMap(this._splitByColon.bind(this))
+            .flatMap(this._splitByAmpersand.bind(this))
+            .flatMap(this._splitByPipe.bind(this));
     }
 
-    _splitByColon(input) {
-        const pattern = /;+/g;
+    _splitByPattern(input, pattern, size = 1, connector = ChainLink.CONNECTOR_NONE) {
+        let chars = input;
+        let con = connector;
+        if(input instanceof ChainLink) {
+            chars = input.command;
+            con = input.connector;
+        }
+
         let match;
         let pointer = 0;
         const output = [];
-        while(null != (match = pattern.exec(input))) {
-            if (match[0].length === 1) {
-                output.push(input.substring(pointer, match.index));
-                pointer = match.index + 1;
+        while(null != (match = pattern.exec(chars))) {
+            if (match[0].length === size) {
+                output.push(new ChainLink(chars.substring(pointer, match.index), con));
+                pointer = match.index + size;
+                con = connector;
             }
         }
 
-        if(pointer < input.length) {
-            output.push(input.substring(pointer));
+        if(pointer < chars.length) {
+            output.push(new ChainLink(chars.substring(pointer), con));
         }
 
         return output;
+    }
+    _splitByColon(input) {
+        return this._splitByPattern(input, /;+/g);
+    }
+
+    _splitByAmpersand(input) {
+        return this._splitByPattern(input, /&&+/g, 2, ChainLink.CONNECTOR_AND);
+    }
+
+    _splitByPipe(input) {
+        return this._splitByPattern(input, /\|\|+/g, 2, ChainLink.CONNECTOR_OR);
     }
 
     _parseCommand(command) {

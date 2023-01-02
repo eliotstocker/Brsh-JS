@@ -2,6 +2,10 @@
 
 echo "starting test script..."
 
+echo "logic tests..."
+true && false || echo "correct"
+false && false || echo "incorrect"
+
 function testFunction1 {
     echo "Function Test 1 | Success"
 }
