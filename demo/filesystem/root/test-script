@@ -157,12 +157,12 @@ then
     exit 1
 fi
 
-export TEST_VALUE="test"
+export TEST_VALUE="test option"
 
 case $TEST_VALUE in
     'main') echo "incorrect value"
         ;;
-    'test') echo "correct value | Success"
+    'test option') echo "correct value | Success"
         ;;
     *) echo "should not get here | Failure"
 esac
