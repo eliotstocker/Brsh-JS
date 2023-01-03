@@ -108,8 +108,6 @@ class Shell extends EventEmitter {
             return link;
         }
 
-        console.log(commands);
-
         const promise = commands.reduce((chain, command) => command.chain(chain, run.bind(this)), Promise.resolve());
 
         if(events) {
