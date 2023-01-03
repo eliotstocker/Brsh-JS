@@ -166,3 +166,20 @@ case $TEST_VALUE in
         ;;
     *) echo "should not get here | Failure"
 esac
+
+read -n 1 -p "continue simple 'for' test? (y=yes /n=no)" CONTINUE
+
+if [[ "$CONTINUE" == "n" ]]
+then
+    echo "ok bye!"
+    exit
+elif [[ "$CONTINUE" != "y" ]]
+then
+    echo "unknown option selected: $CONTINUE"
+    exit 1
+fi
+
+for number in 1 2 3 4
+do
+    echo "number $number"
+done
