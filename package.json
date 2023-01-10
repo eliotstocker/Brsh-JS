@@ -44,7 +44,7 @@
     "through2": "^4.0.2",
     "tmp": "^0.1.0",
     "webpack": "^5.49.0",
-    "webpack-stream": "^6.1.2"
+    "webpack-stream": "^7.0.0"
   },
   "browserify": {
     "transform": [
