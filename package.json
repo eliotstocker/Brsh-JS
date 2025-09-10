@@ -12,8 +12,8 @@
   "scripts": {
     "start": "budo ./demo/demo.js",
     "build": "npm run build:shell && npm run build:terminal",
-    "build:shell": "browserify ./index.js --standalone Shell -d -p bundle-collapser/plugin -p common-shakeify -g uglifyify | exorcist dist/shell.min.js.map > dist/shell.min.js",
-    "build:terminal": "browserify ./lib/terminal -x Shell -t browserify-shim --standalone Terminal -d -p bundle-collapser/plugin -p common-shakeify -g uglifyify | exorcist dist/terminal.min.js.map > dist/terminal.min.js",
+    "build:shell": "esbuild ./index.js --bundle --outfile=dist/shell.min.js --minify --sourcemap --format=iife --global-name=Shell",
+    "build:terminal": "esbuild ./lib/terminal.js --bundle --outfile=dist/terminal.min.js --minify --sourcemap --format=iife --global-name=Terminal",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prepublishOnly": "npm run build"
   },
@@ -25,26 +25,28 @@
   "license": "GPL-3.0",
   "devDependencies": {
     "brfs": "^2.0.2",
-    "browserify": "^16.5.0",
+    "browserify": "^17.0.1",
     "browserify-css": "^0.15.0",
-    "browserify-shim": "^3.8.14",
-    "budo": "^11.6.3",
-    "bundle-collapser": "^1.3.0",
-    "common-shakeify": "^0.6.2",
-    "exorcist": "^1.0.1",
+    "browserify-shim": "^3.8.16",
+    "budo": "^11.8.4",
+    "bundle-collapser": "^1.4.0",
+    "common-shakeify": "^1.1.2",
+    "esbuild": "^0.25.9",
+    "exorcist": "^2.0.0",
     "readline": "^1.3.0",
-    "url-loader": "^4.1.1",
-    "uglifyify": "^5.0.2"
+    "uglifyify": "^5.0.0",
+    "url-loader": "^4.1.1"
   },
   "dependencies": {
     "ansi_up": "git+https://github.com/eliotstocker/ansi_up.git",
-    "command-line-args": "^5.1.1",
-    "node-polyfill-webpack-plugin": "^1.1.4",
-    "string.prototype.matchall": "^3.0.1",
+    "command-line-args": "^6.0.1",
+    "esbuild-plugin-polyfill-node": "^0.3.0",
+    "node-polyfill-webpack-plugin": "^4.1.0",
+    "string.prototype.matchall": "^4.0.12",
     "through2": "^4.0.2",
-    "tmp": "^0.1.0",
-    "webpack": "^5.49.0",
-    "webpack-stream": "^6.1.2"
+    "tmp": "^0.2.5",
+    "webpack": "^5.101.2",
+    "webpack-stream": "^7.0.0"
   },
   "browserify": {
     "transform": [

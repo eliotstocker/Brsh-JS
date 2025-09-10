@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const cla = require('command-line-args');
-const tmp = require('tmp');
+import * as esbuild from 'esbuild'
 
-//build deps
-const webpack = require('webpack-stream');
-const wp = require('webpack');
-const through = require('through2');
-const NodePolyfillPlugin = require("node-polyfill-webpack-plugin");
+import fs from 'fs';
+import path from 'path';
+import cla from 'command-line-args';
+import tmp from 'tmp';
+
+import { polyfillNode } from "esbuild-plugin-polyfill-node";
 
 const ignore = ['.DS_Store'];
 
@@ -137,82 +135,67 @@ if(options.hyperlinks) {
     alias['supports-hyperlinks'] = 'supports-hyperlinks/index'
 }
 
-const w = webpack({
-    mode: 'production',
-    entry: {
-        fs: tf.name,
-    },
-    output: {
-        library: {
-            name: options.variable,
-            type: 'var',
-        },
-        filename: '[name].js'
-    },
-    module: {
-        rules: [
-            {
-                test: /\.(?:gif|png|jpg|jpeg|bmp)$/i,
-                type: 'asset/inline',
-            },
-            {
-                test: function (modulePath) {
-                    const handledExtensions = ['gif', 'png', 'jpg', 'jpeg', 'bmp', 'js'];
-
-                    const handled = handledExtensions.reduce((acc, ext) => {
-                        if(acc) {
-                            return true;
-                        }
-
-                        if(modulePath.endsWith(ext)) {
-                            return true;
-                        }
-
-                        return false;
-                    }, false);
-
-                    return !handled;
-                },
-                type: 'asset/source'
-            },
-        ],
-    },
-    plugins: [
-        new wp.DefinePlugin({
-            __BUILD_ENV: JSON.stringify(env)
-        }),
-        new wp.ProvidePlugin({
-            process: require.resolve('./shims/process-shim.js')
-        }),
-        new NodePolyfillPlugin({
-            excludeAliases: ['console', 'tty', 'process']
-        })
-    ],
-    optimization: {
-        minimize: !options.pretty,
-    },
-    resolve: {
-        fallback: {
-            fs: false,
-            net: false,
-            process: require.resolve('./shims/process-shim.js'),
-            tty: require.resolve('./shims/tty-shim.js')
-        },
-        alias
-    }
-}, wp);
-
-const filePipe = through.obj(function (file, enc, cb) {
-    if (file.path.endsWith('.js')) {
-        this.push(file.contents);
-    }
-
-    cb();
-});
-
-if(options.output) {
-    const fileStream = fs.createWriteStream(options.output);
-    w.pipe(filePipe).pipe(fileStream);
-} else {
-    w.pipe(filePipe).pipe(process.stdout);
+let textLoaderPlugin = {
+  name: 'textLoader',
+  setup(build) {
+    build.onLoad({ filter: /.*$/}, async (args) => {
+        const filename = path.basename(args.path);
+        
+        if (!filename.endsWith('.js')
+            && !filename.endsWith('.json')
+            && !filename.endsWith('.ts')
+            && !filename.endsWith('.gif')
+            && !filename.endsWith('.png')
+            && !filename.endsWith('.jpg')
+            && !filename.endsWith('.jpeg')
+            && !filename.endsWith('.bmp')
+        ) {
+          const contents = await fs.promises.readFile(args.path, 'utf8');
+          return {
+            contents,
+            loader: 'text'
+          };
+        }
+    })
+  }
 }
+
+const output = esbuild.build({
+  entryPoints: [tf.name],
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  treeShaking: true,
+  outfile: options.output,
+  allowOverwrite: true,
+  globalName: options.variable,
+  minify: true,
+  sourcemap: false,
+  loader: {
+    '.gif': 'binary',
+    '.png': 'binary',
+    '.jpg': 'binary',
+    '.jpeg': 'binary',
+    '.bmp': 'binary'
+  },
+  plugins: [
+    textLoaderPlugin,
+    polyfillNode({
+        // Options (optional)
+    }),
+  ],
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+    'process.env.COLORTERM': JSON.stringify('truecolor'),
+    'process.env.TERM': JSON.stringify('color'),
+    'process.env.FORCE_HYPERLINK': options.hyperlinks ? JSON.stringify('true') : JSON.stringify('false'),
+  },
+  alias,
+})
+    .then(() => {
+        console.log('Build succeeded');
+
+        if(!options.output) {
+            process.stdout.write(output.outputFiles[0].text);
+        }
+    });
