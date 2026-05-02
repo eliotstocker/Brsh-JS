@@ -116,3 +116,112 @@ describe('cat', () => {
         expect(exitCode).toBeGreaterThan(0);
     });
 });
+
+describe('true / false', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('true exits with code 0', async () => {
+        const { exitCode } = await run(shell, 'true');
+        expect(exitCode).toBe(0);
+    });
+
+    it('false exits with code 1', async () => {
+        const { exitCode } = await run(shell, 'false');
+        expect(exitCode).toBe(1);
+    });
+});
+
+describe('test and [ ]', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: { home: { 'readme.txt': 'hi', subdir: {} } }
+        });
+    });
+
+    it('exits 0 when strings are equal (=)', async () => {
+        const { exitCode } = await run(shell, 'test hello = hello');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 when strings differ (=)', async () => {
+        const { exitCode } = await run(shell, 'test hello = world');
+        expect(exitCode).toBe(1);
+    });
+
+    it('exits 0 for != when strings differ', async () => {
+        const { exitCode } = await run(shell, 'test a != b');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 0 for -n with non-empty string', async () => {
+        const { exitCode } = await run(shell, 'test -n hello');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 for -n with empty string', async () => {
+        const { exitCode } = await run(shell, 'test -n ""');
+        expect(exitCode).toBe(1);
+    });
+
+    it('exits 0 for -z with empty string', async () => {
+        const { exitCode } = await run(shell, 'test -z ""');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 0 for numeric -eq', async () => {
+        const { exitCode } = await run(shell, 'test 5 -eq 5');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 for numeric -eq when not equal', async () => {
+        const { exitCode } = await run(shell, 'test 5 -eq 6');
+        expect(exitCode).toBe(1);
+    });
+
+    it('exits 0 for -gt when greater', async () => {
+        const { exitCode } = await run(shell, 'test 10 -gt 3');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 for -gt when not greater', async () => {
+        const { exitCode } = await run(shell, 'test 3 -gt 10');
+        expect(exitCode).toBe(1);
+    });
+
+    it('exits 0 for -f on an existing file', async () => {
+        const { exitCode } = await run(shell, 'test -f /home/readme.txt');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 for -f on a directory', async () => {
+        const { exitCode } = await run(shell, 'test -f /home/subdir');
+        expect(exitCode).toBe(1);
+    });
+
+    it('exits 0 for -d on a directory', async () => {
+        const { exitCode } = await run(shell, 'test -d /home/subdir');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 for -d on a file', async () => {
+        const { exitCode } = await run(shell, 'test -d /home/readme.txt');
+        expect(exitCode).toBe(1);
+    });
+
+    it('bracket syntax [ ] works the same as test', async () => {
+        const { exitCode } = await run(shell, '[ hello = hello ]');
+        expect(exitCode).toBe(0);
+    });
+
+    it('bracket syntax exits 1 for false condition', async () => {
+        const { exitCode } = await run(shell, '[ hello = world ]');
+        expect(exitCode).toBe(1);
+    });
+
+    it('! negates the result', async () => {
+        const { exitCode } = await run(shell, 'test ! hello = world');
+        expect(exitCode).toBe(0);
+    });
+});

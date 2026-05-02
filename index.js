@@ -83,21 +83,29 @@ class Shell extends EventEmitter {
     }
 
     onCommand(raw, events = true) {
-        const commands = this._splitInput(raw);
+        const segments = this._splitInput(raw);
+        let shouldRun = true;
 
-        const promise = commands.reduce((chain, command) => {
-            return chain.then(() => this._runCommand(command))
-                .then(() => {
-                    if(this._lastCode > 0) {
-                        throw new Error('chain broken');
-                    }
-                })
+        const promise = segments.reduce((chain, { command, op }) => {
+            return chain.then(() => {
+                if (!shouldRun) {
+                    if (op === '&&') shouldRun = this._lastCode === 0;
+                    else if (op === '||') shouldRun = this._lastCode !== 0;
+                    else if (op === ';') shouldRun = true;
+                    return;
+                }
+                return this._runCommand(command).then(() => {
+                    if (op === '&&') shouldRun = this._lastCode === 0;
+                    else if (op === '||') shouldRun = this._lastCode !== 0;
+                    else if (op === ';') shouldRun = true;
+                });
+            });
         }, Promise.resolve());
 
         if(events) {
             return promise.then(() => {
                 if(!this.destroyed) {
-                    this.emit('status', Shell.STATUS_READY)
+                    this.emit('status', Shell.STATUS_READY);
                 }
             })
                 .catch(() => this.emit('status', Shell.STATUS_READY));
@@ -110,14 +118,24 @@ class Shell extends EventEmitter {
         return this.context.fs.autoComplete(path, this.path);
     }
 
-    _runCommand(command) {
-        if(command.length < 1) {
-            return Promise.resolve();
+    async _runCommand(command) {
+        if(!command || command.length < 1) {
+            return;
         }
 
         this.emit('status', Shell.STATUS_WORKING);
 
-        let args = this._parseCommandLine(command);
+        let args;
+        try {
+            args = await this._parseCommandLine(command);
+        } catch(e) {
+            this.emit('stdErr', e.message || String(e));
+            this.lastCode = 1;
+            this.emit('exitCode', this.lastCode);
+            return;
+        }
+
+        if (!args.length) return;
         let bin = args.shift();
 
         //short circuit for aliases
@@ -133,7 +151,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', e.message);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return Promise.resolve();
+            return;
         }
 
         let instance;
@@ -145,7 +163,7 @@ class Shell extends EventEmitter {
             this.emit('stdErr', `${bin}: Command not found`);
             this.lastCode = 1;
             this.emit('exitCode', this.lastCode);
-            return Promise.resolve();
+            return;
         }
 
         if(instance.requiresFilesystem) {
@@ -156,7 +174,7 @@ class Shell extends EventEmitter {
         if(this.runningCommand.on) {
             this.runningCommand.on('flush', lines => {
                 this._emitOutput(lines);
-            })
+            });
         }
 
         return instance.runCommand().then(result => {
@@ -195,12 +213,38 @@ class Shell extends EventEmitter {
     }
 
     _splitInput(input) {
-        // remove anything after hash as its a comment;
-        let out = [input.split('#')[0]];
+        const commentStripped = input.split('#')[0];
+        return this._parseOperators(commentStripped);
+    }
 
-        return out
-            .flatMap(item => item.split('&&'))
-            .flatMap(item => item.trim());
+    _parseOperators(input) {
+        const segments = [];
+        let current = '';
+        let i = 0;
+        let sq = false, dq = false;
+
+        while (i < input.length) {
+            const ch = input[i];
+            if (ch === "'" && !dq) { sq = !sq; current += ch; i++; continue; }
+            if (ch === '"' && !sq) { dq = !dq; current += ch; i++; continue; }
+            if (!sq && !dq) {
+                if (ch === '&' && input[i + 1] === '&') {
+                    segments.push({ command: current.trim(), op: '&&' });
+                    current = ''; i += 2; continue;
+                }
+                if (ch === '|' && input[i + 1] === '|') {
+                    segments.push({ command: current.trim(), op: '||' });
+                    current = ''; i += 2; continue;
+                }
+                if (ch === ';') {
+                    segments.push({ command: current.trim(), op: ';' });
+                    current = ''; i++; continue;
+                }
+            }
+            current += ch; i++;
+        }
+        if (current.trim()) segments.push({ command: current.trim(), op: null });
+        return segments;
     }
 
     _parseCommand(command) {
@@ -233,11 +277,17 @@ class Shell extends EventEmitter {
         return cmd;
     }
 
-    _parseCommandLine(string) {
-        const parts = Shell._sanitiseArray(Shell._splitCommand(string));
-        const replaced = parts.map(part => this._replaceVariables(part));
-
-        return Shell._sanitiseArray(replaced);
+    async _parseCommandLine(string) {
+        const parts = Shell._splitCommand(string);
+        const replaced = await Promise.all(
+            parts.map(({ value, hasQuote }) =>
+                this._replaceVariables(value).then(v => ({ value: v, hasQuote }))
+            )
+        );
+        // Keep tokens that are non-empty OR were explicitly quoted (preserves "" → '')
+        return replaced
+            .filter(({ value, hasQuote }) => value.length > 0 || hasQuote)
+            .map(({ value }) => value);
     }
 
     static _sanitiseCommandPart(string) {
@@ -250,50 +300,121 @@ class Shell extends EventEmitter {
         return array.filter(item => item.length > 0);
     }
 
-    _replaceVariables(part) {
-        const matches = part.matchAll(variableRegex);
+    async _replaceVariables(part) {
+        // 1. Arithmetic substitution $(( expr ))
+        const arithMatches = [...part.matchAll(/\$\(\(([^)]+)\)\)/g)];
+        for (const m of arithMatches) {
+            part = part.replace(m[0], String(this._evalArithmetic(m[1])));
+        }
 
+        // 2. Command substitution $( cmd ) — negative lookahead excludes $((
+        const cmdMatches = [...part.matchAll(/\$\((?!\()([^)]+)\)/g)];
+        for (const m of cmdMatches) {
+            const output = await this._runAndCapture(m[1]);
+            part = part.replace(m[0], output);
+        }
+
+        // 3. Variable substitution $VAR and ${VAR}
+        const matches = part.matchAll(variableRegex);
         let match = matches.next();
         while (!match.done) {
             const value = this.context.getVar(match.value[1]);
-            part = part.replace(new RegExp(Shell._escapeRegExp(match.value[0]), 'g'), value);
+            part = part.replace(new RegExp(Shell._escapeRegExp(match.value[0]), 'g'), String(value));
             match = matches.next();
         }
 
         return part;
     }
 
+    _evalArithmetic(expr) {
+        const expanded = expr.replace(/\${?([\w\d]+)}?/g, (m, name) =>
+            String(parseInt(this.context.getVar(name)) || 0));
+        if (!/^[\d\s+\-*/%()]+$/.test(expanded.trim())) return 0;
+        try {
+            return new Function('return (' + expanded + ')')();
+        } catch {
+            return 0;
+        }
+    }
+
+    async _runAndCapture(cmd) {
+        const subshell = new global.shell({
+            cwd: this.context.fs.cwd,
+            filesystem: this.context.fs.getRaw()
+        });
+        subshell.context.source(this.context);
+
+        const lines = [];
+        subshell.on('stdOut', line => lines.push(line));
+        await subshell.onCommand(cmd, false);
+
+        return lines.join('\n').trimEnd();
+    }
+
+    // Returns Array<{value: string, hasQuote: boolean}>.
+    // hasQuote=true means the token contained an explicit quoted segment (even empty ""),
+    // which must be preserved even if the final value is an empty string.
     static _splitCommand(string) {
         const separator = /\s/g;
         let singleQuoteOpen = false;
         let doubleQuoteOpen = false;
+        let dollarDepth = 0;
         let tokenBuffer = [];
+        let tokenHasQuote = false;
         const parts = [];
 
-        for (let character of string) {
-            const matches = character.match(separator);
-            if (character === "'" && !doubleQuoteOpen) {
+        for (let i = 0; i < string.length; i++) {
+            const ch = string[i];
+
+            // Inside $(...) or $((...)) — keep everything verbatim, track nesting
+            if (dollarDepth > 0) {
+                tokenBuffer.push(ch);
+                if (ch === '(') dollarDepth++;
+                else if (ch === ')') dollarDepth--;
+                continue;
+            }
+
+            // Quote handling
+            if (ch === "'" && !doubleQuoteOpen) {
                 singleQuoteOpen = !singleQuoteOpen;
+                tokenHasQuote = true;
                 continue;
-            } else if (character === '"' && !singleQuoteOpen) {
+            }
+            if (ch === '"' && !singleQuoteOpen) {
                 doubleQuoteOpen = !doubleQuoteOpen;
+                tokenHasQuote = true;
                 continue;
             }
 
-            if (!singleQuoteOpen && !doubleQuoteOpen && matches) {
-                if (tokenBuffer.length > 0) {
-                    parts.push(tokenBuffer.join(''));
-                    tokenBuffer = [];
+            if (!singleQuoteOpen && !doubleQuoteOpen) {
+                // Start of $( or $(( substitution — consume the opening '(' too
+                if (ch === '$' && i + 1 < string.length && string[i + 1] === '(') {
+                    dollarDepth = 1;
+                    tokenBuffer.push('$');
+                    tokenBuffer.push('(');
+                    i++;
+                    continue;
                 }
-            } else {
-                tokenBuffer.push(character);
+
+                // Whitespace splits tokens
+                if (ch.match(separator)) {
+                    if (tokenBuffer.length > 0 || tokenHasQuote) {
+                        parts.push({ value: tokenBuffer.join(''), hasQuote: tokenHasQuote });
+                        tokenBuffer = [];
+                        tokenHasQuote = false;
+                    }
+                    continue;
+                }
             }
-        }
-        if (tokenBuffer.length > 0) {
-            parts.push(tokenBuffer.join(''));
+
+            tokenBuffer.push(ch);
         }
 
-        if(singleQuoteOpen || doubleQuoteOpen) {
+        if (tokenBuffer.length > 0 || tokenHasQuote) {
+            parts.push({ value: tokenBuffer.join(''), hasQuote: tokenHasQuote });
+        }
+
+        if (singleQuoteOpen || doubleQuoteOpen) {
             throw new Error('quote expression not closed');
         }
         return parts;

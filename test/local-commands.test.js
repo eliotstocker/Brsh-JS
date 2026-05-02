@@ -169,8 +169,8 @@ describe('read', () => {
 
     it('stores received characters in the named variable', async () => {
         const p = shell.onCommand('read -n 1 -t 1 CHAR');
-        // Yield so the _runCommand microtask runs and registers runningCommand
-        await Promise.resolve();
+        // _runCommand is async so drain all microtasks before sending input
+        await new Promise(resolve => setImmediate(resolve));
         shell.onInput('x');
         await p;
         expect(shell.context.getVar('CHAR')).toBe('x');
@@ -179,5 +179,45 @@ describe('read', () => {
     it('shows help with -h', async () => {
         const { output } = await run(shell, 'read -h');
         expect(output.join(' ')).toMatch(/usage/i);
+    });
+});
+
+describe('source', () => {
+    it('executes a script and merges exported variables into the current context', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: { 'setup.sh': '#!/sh.js\nexport LOADED=yes' }
+            }
+        });
+        await shell.onCommand('source /scripts/setup.sh');
+        expect(shell.context.getVar('LOADED')).toBe('yes');
+    });
+
+    it('sourced aliases are available in the current context', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: { 'aliases.sh': "#!/sh.js\nalias 'greet=echo hi'" }
+            }
+        });
+        await shell.onCommand('source /scripts/aliases.sh');
+        const { output } = await run(shell, 'greet');
+        expect(output).toContain('hi');
+    });
+
+    it('errors on a non-existent file', async () => {
+        const shell = await createShell();
+        const { errors, exitCode } = await run(shell, 'source /nope.sh');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('errors when the target has no shebang', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: { 'plain.sh': 'just text, no shebang' }
+            }
+        });
+        const { exitCode } = await run(shell, 'source /scripts/plain.sh');
+        expect(exitCode).toBeGreaterThan(0);
     });
 });

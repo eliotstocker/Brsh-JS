@@ -144,8 +144,122 @@ describe('conditional execution', () => {
         const { output } = await run(shell, 'notacommand && echo should_not_run');
         expect(output).not.toContain('should_not_run');
     });
+});
 
-    it.todo('if command: runs then-branch on success');
-    it.todo('if command: runs else-branch on failure');
-    it.todo('while command: loops until condition is false');
+// ---------------------------------------------------------------------------
+// Control flow: if / else / elif / while / for
+// ---------------------------------------------------------------------------
+
+describe('if / else / elif', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'if-then.sh': '#!/sh.js\nif true; then\necho yes\nfi',
+                    'if-else.sh': '#!/sh.js\nif false; then\necho yes\nelse\necho no\nfi',
+                    'if-elif.sh': '#!/sh.js\nexport V=b\nif [ "$V" = "a" ]; then\necho isa\nelif [ "$V" = "b" ]; then\necho isb\nelse\necho isc\nfi',
+                    'if-nested.sh': '#!/sh.js\nif true; then\nif true; then\necho inner\nfi\nfi',
+                    'if-var.sh': '#!/sh.js\nexport X=hello\nif [ "$X" = "hello" ]; then\necho matched\nfi',
+                }
+            }
+        });
+    });
+
+    it('runs then-branch when condition succeeds', async () => {
+        const { output } = await run(shell, '/scripts/if-then.sh');
+        expect(output).toContain('yes');
+    });
+
+    it('runs else-branch when condition fails', async () => {
+        const { output } = await run(shell, '/scripts/if-else.sh');
+        expect(output).not.toContain('yes');
+        expect(output).toContain('no');
+    });
+
+    it('runs the matching elif branch', async () => {
+        const { output } = await run(shell, '/scripts/if-elif.sh');
+        expect(output).toContain('isb');
+        expect(output).not.toContain('isa');
+        expect(output).not.toContain('isc');
+    });
+
+    it('supports nested if blocks', async () => {
+        const { output } = await run(shell, '/scripts/if-nested.sh');
+        expect(output).toContain('inner');
+    });
+
+    it('uses [ ] test to check a variable', async () => {
+        const { output } = await run(shell, '/scripts/if-var.sh');
+        expect(output).toContain('matched');
+    });
+});
+
+describe('while loop', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'while-count.sh': '#!/sh.js\nexport I=0\nwhile [ "$I" != "3" ]; do\nexport I=$(($I + 1))\ndone\necho $I',
+                    'while-skip.sh': '#!/sh.js\nif false; then\nwhile true; do\necho infinite\ndone\nfi\necho done',
+                }
+            }
+        });
+    });
+
+    it('loops until condition becomes false', async () => {
+        const { output } = await run(shell, '/scripts/while-count.sh');
+        expect(output).toContain('3');
+    });
+
+    it('skips a while block when inside a false if branch', async () => {
+        const { output } = await run(shell, '/scripts/while-skip.sh');
+        expect(output).toContain('done');
+        expect(output).not.toContain('infinite');
+    });
+});
+
+describe('for loop', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'for-list.sh': '#!/sh.js\nfor item in apple banana cherry; do\necho $item\ndone',
+                    'for-var.sh': '#!/sh.js\nexport ITEMS="x y z"\nfor i in $ITEMS; do\necho $i\ndone',
+                    'for-nested.sh': '#!/sh.js\nfor a in 1 2; do\nfor b in x y; do\necho $a$b\ndone\ndone',
+                }
+            }
+        });
+    });
+
+    it('iterates over a literal list', async () => {
+        const { output } = await run(shell, '/scripts/for-list.sh');
+        expect(output).toContain('apple');
+        expect(output).toContain('banana');
+        expect(output).toContain('cherry');
+    });
+
+    it('iterates in order', async () => {
+        const { output } = await run(shell, '/scripts/for-list.sh');
+        expect(output.indexOf('apple')).toBeLessThan(output.indexOf('banana'));
+        expect(output.indexOf('banana')).toBeLessThan(output.indexOf('cherry'));
+    });
+
+    it('expands a variable to build the list', async () => {
+        const { output } = await run(shell, '/scripts/for-var.sh');
+        expect(output).toContain('x');
+        expect(output).toContain('y');
+        expect(output).toContain('z');
+    });
+
+    it('supports nested for loops', async () => {
+        const { output } = await run(shell, '/scripts/for-nested.sh');
+        expect(output).toContain('1x');
+        expect(output).toContain('2y');
+    });
 });
