@@ -247,6 +247,111 @@ describe('test and [ ]', () => {
     });
 });
 
+describe('grep', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'a.txt': 'hello world\nfoo bar\nHELLO again',
+                    'b.txt': 'second file\nfoo baz',
+                    subdir: {
+                        'c.txt': 'nested foo line'
+                    }
+                }
+            },
+            cwd: '/home'
+        });
+    });
+
+    it('matches a basic pattern', async () => {
+        const { output, exitCode } = await run(shell, 'grep foo /home/a.txt');
+        expect(output).toContain('foo bar');
+        expect(exitCode).toBe(0);
+    });
+
+    it('exits 1 when pattern not found', async () => {
+        const { exitCode } = await run(shell, 'grep nomatch /home/a.txt');
+        expect(exitCode).toBe(1);
+    });
+
+    it('-i matches case-insensitively', async () => {
+        const { output } = await run(shell, 'grep -i hello /home/a.txt');
+        expect(output).toContain('hello world');
+        expect(output).toContain('HELLO again');
+    });
+
+    it('-v inverts match', async () => {
+        const { output } = await run(shell, 'grep -v foo /home/a.txt');
+        expect(output).toContain('hello world');
+        expect(output).not.toContain('foo bar');
+    });
+
+    it('-n prefixes with line numbers', async () => {
+        const { output } = await run(shell, 'grep -n foo /home/a.txt');
+        expect(output.some(l => l.startsWith('2:'))).toBe(true);
+    });
+
+    it('-c prints match count', async () => {
+        const { output } = await run(shell, 'grep -c foo /home/a.txt');
+        expect(output).toContain('1');
+    });
+
+    it('-l lists filenames only for multi-file search', async () => {
+        const { output } = await run(shell, 'grep -l foo /home/a.txt /home/b.txt');
+        expect(output).toContain('/home/a.txt');
+        expect(output).toContain('/home/b.txt');
+    });
+
+    it('prefixes filename when multiple files given', async () => {
+        const { output } = await run(shell, 'grep foo /home/a.txt /home/b.txt');
+        expect(output.some(l => l.startsWith('/home/a.txt:'))).toBe(true);
+        expect(output.some(l => l.startsWith('/home/b.txt:'))).toBe(true);
+    });
+
+    it('-r searches recursively', async () => {
+        const { output } = await run(shell, 'grep -r foo /home');
+        expect(output.some(l => l.includes('foo'))).toBe(true);
+        expect(output.some(l => l.includes('nested foo line'))).toBe(true);
+    });
+
+    it('-F treats pattern as fixed string', async () => {
+        const { output } = await run(shell, 'grep -F foo /home/a.txt');
+        expect(output).toContain('foo bar');
+    });
+
+    it('-e accepts pattern as flag argument', async () => {
+        const { output } = await run(shell, 'grep -e foo /home/a.txt');
+        expect(output).toContain('foo bar');
+    });
+
+    it('errors on missing file with exit code 2', async () => {
+        const { errors, exitCode } = await run(shell, 'grep foo /home/missing.txt');
+        expect(exitCode).toBe(2);
+        expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('errors when no pattern given', async () => {
+        const { errors, exitCode } = await run(shell, 'grep');
+        expect(exitCode).toBe(2);
+        expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('-q suppresses output but still sets exit code', async () => {
+        const { output, exitCode } = await run(shell, 'grep -q foo /home/a.txt');
+        expect(output.length).toBe(0);
+        expect(exitCode).toBe(0);
+    });
+
+    it('-- ends option parsing so pattern can start with -', async () => {
+        const shell2 = await createShell({
+            filesystem: { home: { 'f.txt': '-dashed line\nnormal line' } }
+        });
+        const { output } = await run(shell2, 'grep -- -dashed /home/f.txt');
+        expect(output).toContain('-dashed line');
+    });
+});
+
 describe('echo flags', () => {
     let shell;
     beforeEach(async () => { shell = await createShell(); });
