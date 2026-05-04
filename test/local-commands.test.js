@@ -521,3 +521,73 @@ describe('onFsChange callback', () => {
         expect(calls.length).toBe(beforeLen);
     });
 });
+
+describe('jsfunction', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('defines and calls a no-arg function', async () => {
+        await shell.onCommand("jsfunction hi 'args => \"hello world\"'");
+        const { output, exitCode } = await run(shell, 'hi');
+        expect(output).toContain('hello world');
+        expect(exitCode).toBe(0);
+    });
+
+    it('passes arguments to the function', async () => {
+        await shell.onCommand("jsfunction greet 'args => \"Hello \" + args[0]'");
+        const { output } = await run(shell, 'greet Alice');
+        expect(output).toContain('Hello Alice');
+    });
+
+    it('returning undefined produces no output and exits 0', async () => {
+        await shell.onCommand("jsfunction noop 'args => undefined'");
+        const { output, exitCode } = await run(shell, 'noop');
+        expect(output.length).toBe(0);
+        expect(exitCode).toBe(0);
+    });
+
+    it('invalid JS body gives stderr and exit code 1', async () => {
+        const { errors, exitCode } = await run(shell, 'jsfunction bad "{{{"');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBe(1);
+    });
+
+    it('non-function expression gives stderr and exit code 1', async () => {
+        const { errors, exitCode } = await run(shell, 'jsfunction notfn \'"hello"\'');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBe(1);
+    });
+
+    it('runtime error in function gives stderr and exit code 1', async () => {
+        await shell.onCommand("jsfunction boom 'args => { throw new Error(\"boom\"); }'");
+        const { errors, exitCode } = await run(shell, 'boom');
+        expect(errors.join(' ')).toMatch(/boom/);
+        expect(exitCode).toBe(1);
+    });
+
+    it('missing arguments gives usage error', async () => {
+        const { errors, exitCode } = await run(shell, 'jsfunction');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBe(1);
+    });
+
+    it('async function return value is captured', async () => {
+        await shell.onCommand("jsfunction asynchi 'args => Promise.resolve(\"async result\")'");
+        const { output, exitCode } = await run(shell, 'asynchi');
+        expect(output).toContain('async result');
+        expect(exitCode).toBe(0);
+    });
+
+    it('can be defined and used within a script', async () => {
+        const scriptShell = await createShell({
+            filesystem: {
+                scripts: {
+                    'fn.sh': '#!/sh.js\njsfunction double \'args => String(Number(args[0]) * 2)\'\necho $(double 5)'
+                }
+            },
+            permissions: { '/scripts/fn.sh': 0o755 }
+        });
+        const { output } = await run(scriptShell, '/scripts/fn.sh');
+        expect(output).toContain('10');
+    });
+});
