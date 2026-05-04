@@ -46,7 +46,10 @@ jobs:
           # Pre-set ECHO so testing.sh skips its gcc-based auto-detection.
           # The system sh builtin echo doesn't support -ne on Ubuntu (dash),
           # which would cause testing.sh to try to compile ../scripts/echo.c.
-          ECHO: ${{ github.workspace }}/brsh-bin/echo
+          # Use coreutils /bin/echo (not our brsh wrapper) — brsh-cmd.js appends
+          # an extra \n to every stdOut line, which would corrupt the expected
+          # files that testing.sh writes with "echo -ne".
+          ECHO: /bin/echo
           # Enable optional blocks for features brsh implements
           OPTIONFLAGS: ":FEATURE_CATN:FEATURE_GREP_EGREP_ALIAS:"
         run: |
