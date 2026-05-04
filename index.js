@@ -22,7 +22,7 @@ require('string.prototype.matchall').shim();
 class Shell extends EventEmitter {
     constructor(options) {
         super();
-        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, cwd = '/'} = options;
+        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/'} = options;
 
         this.context = new Context(Object.assign({}, options, {
             clearFn: this.clear.bind(this),
@@ -31,7 +31,7 @@ class Shell extends EventEmitter {
 
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
-        this.context.setFilesystem(filesystem);
+        this.context.setFilesystem(filesystem, permissions);
         this.context.setCwd(cwd);
 
         this._loadDefaultCommands();
@@ -263,6 +263,9 @@ class Shell extends EventEmitter {
             }
 
             if(handle.constructor === String && handle.startsWith('#!')) {
+                if (!this.context.fs.isExecutable(command)) {
+                    throw new Error(`${command}: permission denied`);
+                }
                 return ScriptCommand.bind(this, handle);
             }
 
@@ -340,7 +343,8 @@ class Shell extends EventEmitter {
     async _runAndCapture(cmd) {
         const subshell = new global.shell({
             cwd: this.context.fs.cwd,
-            filesystem: this.context.fs.getRaw()
+            filesystem: this.context.fs.getRaw(),
+            permissions: this.context.fs.getRawPermissions()
         });
         subshell.context.source(this.context);
 

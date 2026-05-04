@@ -8,6 +8,11 @@ const require = createRequire(import.meta.url);
 const Shell = require('../index.js');
 const Command = require('../lib/Command.js');
 
+// Returns a permissions map granting execute (0o755) to the given virtual paths.
+function execPerms(...paths) {
+    return Object.fromEntries(paths.map(p => [p, 0o755]));
+}
+
 // ---------------------------------------------------------------------------
 // JS application from filesystem
 // ---------------------------------------------------------------------------
@@ -94,7 +99,8 @@ describe('shell script execution', () => {
                     'multi.sh': '#!/sh.js\necho line1\necho line2',
                     'nointerp.sh': 'this has no shebang'
                 }
-            }
+            },
+            permissions: execPerms('/scripts/greet.sh', '/scripts/multi.sh')
         });
     });
 
@@ -163,7 +169,11 @@ describe('if / else / elif', () => {
                     'if-nested.sh': '#!/sh.js\nif true; then\nif true; then\necho inner\nfi\nfi',
                     'if-var.sh': '#!/sh.js\nexport X=hello\nif [ "$X" = "hello" ]; then\necho matched\nfi',
                 }
-            }
+            },
+            permissions: execPerms(
+                '/scripts/if-then.sh', '/scripts/if-else.sh', '/scripts/if-elif.sh',
+                '/scripts/if-nested.sh', '/scripts/if-var.sh'
+            )
         });
     });
 
@@ -206,7 +216,8 @@ describe('while loop', () => {
                     'while-count.sh': '#!/sh.js\nexport I=0\nwhile [ "$I" != "3" ]; do\nexport I=$(($I + 1))\ndone\necho $I',
                     'while-skip.sh': '#!/sh.js\nif false; then\nwhile true; do\necho infinite\ndone\nfi\necho done',
                 }
-            }
+            },
+            permissions: execPerms('/scripts/while-count.sh', '/scripts/while-skip.sh')
         });
     });
 
@@ -233,7 +244,8 @@ describe('for loop', () => {
                     'for-var.sh': '#!/sh.js\nexport ITEMS="x y z"\nfor i in $ITEMS; do\necho $i\ndone',
                     'for-nested.sh': '#!/sh.js\nfor a in 1 2; do\nfor b in x y; do\necho $a$b\ndone\ndone',
                 }
-            }
+            },
+            permissions: execPerms('/scripts/for-list.sh', '/scripts/for-var.sh', '/scripts/for-nested.sh')
         });
     });
 

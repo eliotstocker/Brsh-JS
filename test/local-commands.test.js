@@ -221,3 +221,83 @@ describe('source', () => {
         expect(exitCode).toBeGreaterThan(0);
     });
 });
+
+describe('chmod', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'script.sh': '#!/bin/sh\necho hello',
+                    'readme.txt': 'just text'
+                }
+            },
+            cwd: '/home'
+        });
+    });
+
+    it('sets octal mode on a file', async () => {
+        await shell.onCommand('chmod 755 /home/script.sh');
+        expect(shell.context.fs.getMode('/home/script.sh')).toBe(0o755);
+    });
+
+    it('sets a 3-digit octal mode', async () => {
+        await shell.onCommand('chmod 644 /home/script.sh');
+        expect(shell.context.fs.getMode('/home/script.sh')).toBe(0o644);
+    });
+
+    it('adds execute bit with +x', async () => {
+        await shell.onCommand('chmod 644 /home/script.sh');
+        await shell.onCommand('chmod +x /home/script.sh');
+        const mode = shell.context.fs.getMode('/home/script.sh');
+        expect(mode & 0o100).toBeTruthy();
+    });
+
+    it('removes execute bit with -x', async () => {
+        await shell.onCommand('chmod 755 /home/script.sh');
+        await shell.onCommand('chmod -x /home/script.sh');
+        const mode = shell.context.fs.getMode('/home/script.sh');
+        expect(mode & 0o111).toBe(0);
+    });
+
+    it('adds read bit with u+r', async () => {
+        await shell.onCommand('chmod 000 /home/readme.txt');
+        await shell.onCommand('chmod u+r /home/readme.txt');
+        const mode = shell.context.fs.getMode('/home/readme.txt');
+        expect(mode & 0o400).toBeTruthy();
+    });
+
+    it('errors on invalid mode', async () => {
+        const { errors, exitCode } = await run(shell, 'chmod badmode /home/script.sh');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/invalid mode/i);
+    });
+
+    it('errors when file does not exist', async () => {
+        const { errors, exitCode } = await run(shell, 'chmod 755 /home/nope.sh');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/No such file/i);
+    });
+
+    it('errors with no arguments', async () => {
+        const { errors, exitCode } = await run(shell, 'chmod');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/usage/i);
+    });
+
+    it('allows running a script after chmod +x', async () => {
+        const { output, exitCode } = await run(shell, './script.sh');
+        expect(exitCode).toBeGreaterThan(0);
+
+        await shell.onCommand('chmod +x /home/script.sh');
+        const { output: out2, exitCode: code2 } = await run(shell, './script.sh');
+        expect(code2).toBe(0);
+        expect(out2).toContain('hello');
+    });
+
+    it('blocks execution of a script without execute permission', async () => {
+        const { errors, exitCode } = await run(shell, './script.sh');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/permission denied/i);
+    });
+});

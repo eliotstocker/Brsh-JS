@@ -71,6 +71,27 @@ describe('ls', () => {
         expect(output.some((l) => l.includes('rw') || l.includes('drw'))).toBe(true);
     });
 
+    it('shows correct permissions for a regular file', async () => {
+        const { output } = await run(shell, 'ls -l /home');
+        const fileLine = output.find(l => l.includes('file.txt'));
+        expect(fileLine).toBeDefined();
+        expect(fileLine).toMatch(/^-rw-r--r--/);
+    });
+
+    it('shows correct permissions for a directory', async () => {
+        const { output } = await run(shell, 'ls -l /home');
+        const dirLine = output.find(l => l.includes('subdir'));
+        expect(dirLine).toBeDefined();
+        expect(dirLine).toMatch(/^drwxr-xr-x/);
+    });
+
+    it('shows updated permissions after chmod', async () => {
+        await shell.onCommand('chmod 755 /home/file.txt');
+        const { output } = await run(shell, 'ls -l /home');
+        const fileLine = output.find(l => l.includes('file.txt'));
+        expect(fileLine).toMatch(/^-rwxr-xr-x/);
+    });
+
     it('errors on a non-existent path', async () => {
         const { errors, exitCode } = await run(shell, 'ls /does/not/exist');
         expect(errors.length).toBeGreaterThan(0);

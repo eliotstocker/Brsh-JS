@@ -69,9 +69,12 @@ try {
     console.log('cant access specified directory');
     process.exit(1);
 }
-let json = JSON.stringify(struct, null, options.pretty ? 2 : null);
+const { filesystem, permissions } = struct;
+const fsJson = JSON.stringify(filesystem, null, options.pretty ? 2 : null);
+const permJson = JSON.stringify(permissions, null, options.pretty ? 2 : null);
+const fsJS = fsJson.replace(/"(require\('.*?'\))"/gm, '$1');
 
-let JS = 'module.exports = ' + json.replace(/"(require\('.*?'\))"/gm, '$1');
+let JS = `module.exports = { filesystem: ${fsJS}, permissions: ${permJson} }`;
 
 const tf = tmp.fileSync({ postfix: '.tmp.js' });
 fs.writeFileSync(tf.name, JS);

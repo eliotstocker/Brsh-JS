@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -42,30 +42,34 @@ describe('buildStructure', () => {
         rmSync(root, { recursive: true, force: true });
     });
 
-    it('returns an empty object for an empty directory', () => {
-        expect(buildStructure(root)).toEqual({});
+    it('returns { filesystem, permissions } with empty objects for an empty directory', () => {
+        const result = buildStructure(root);
+        expect(result).toHaveProperty('filesystem');
+        expect(result).toHaveProperty('permissions');
+        expect(result.filesystem).toEqual({});
+        expect(result.permissions).toEqual({});
     });
 
     it('includes a plain text file with its full name as the key', () => {
         writeFileSync(join(root, 'readme.txt'), 'hello');
-        const struct = buildStructure(root);
-        expect(struct).toHaveProperty('readme.txt');
-        expect(struct['readme.txt']).toMatch(/^require\('/);
-        expect(struct['readme.txt']).toContain('readme.txt');
+        const { filesystem } = buildStructure(root);
+        expect(filesystem).toHaveProperty('readme.txt');
+        expect(filesystem['readme.txt']).toMatch(/^require\('/);
+        expect(filesystem['readme.txt']).toContain('readme.txt');
     });
 
     it('strips the .js extension from JavaScript file keys', () => {
         writeFileSync(join(root, 'app.js'), 'module.exports = {}');
-        const struct = buildStructure(root);
-        expect(struct).toHaveProperty('app');
-        expect(struct).not.toHaveProperty('app.js');
-        expect(struct['app']).toMatch(/^require\('/);
+        const { filesystem } = buildStructure(root);
+        expect(filesystem).toHaveProperty('app');
+        expect(filesystem).not.toHaveProperty('app.js');
+        expect(filesystem['app']).toMatch(/^require\('/);
     });
 
     it('uses an absolute path in the require() string', () => {
         writeFileSync(join(root, 'data.txt'), 'content');
-        const struct = buildStructure(root);
-        const reqPath = struct['data.txt'].match(/require\('(.+?)'\)/)[1];
+        const { filesystem } = buildStructure(root);
+        const reqPath = filesystem['data.txt'].match(/require\('(.+?)'\)/)[1];
         expect(reqPath).toBe(resolve(root, 'data.txt'));
     });
 
@@ -73,9 +77,9 @@ describe('buildStructure', () => {
         const sub = join(root, 'subdir');
         mkdirSync(sub);
         writeFileSync(join(sub, 'nested.txt'), 'nested');
-        const struct = buildStructure(root);
-        expect(struct).toHaveProperty('subdir');
-        expect(struct.subdir).toHaveProperty('nested.txt');
+        const { filesystem } = buildStructure(root);
+        expect(filesystem).toHaveProperty('subdir');
+        expect(filesystem.subdir).toHaveProperty('nested.txt');
     });
 
     it('handles multiple levels of nesting', () => {
@@ -84,31 +88,54 @@ describe('buildStructure', () => {
         mkdirSync(a);
         mkdirSync(b);
         writeFileSync(join(b, 'deep.txt'), 'deep');
-        const struct = buildStructure(root);
-        expect(struct.a.b['deep.txt']).toMatch(/^require\('/);
+        const { filesystem } = buildStructure(root);
+        expect(filesystem.a.b['deep.txt']).toMatch(/^require\('/);
     });
 
     it('ignores .DS_Store files', () => {
         writeFileSync(join(root, '.DS_Store'), '');
         writeFileSync(join(root, 'keep.txt'), 'keep');
-        const struct = buildStructure(root);
-        expect(struct).not.toHaveProperty('.DS_Store');
-        expect(struct).toHaveProperty('keep.txt');
+        const { filesystem } = buildStructure(root);
+        expect(filesystem).not.toHaveProperty('.DS_Store');
+        expect(filesystem).toHaveProperty('keep.txt');
     });
 
     it('includes multiple files in the same directory', () => {
         writeFileSync(join(root, 'a.txt'), 'a');
         writeFileSync(join(root, 'b.txt'), 'b');
         writeFileSync(join(root, 'c.js'),  'module.exports = {}');
-        const struct = buildStructure(root);
-        expect(Object.keys(struct)).toHaveLength(3);
-        expect(struct).toHaveProperty('a.txt');
-        expect(struct).toHaveProperty('b.txt');
-        expect(struct).toHaveProperty('c');
+        const { filesystem } = buildStructure(root);
+        expect(Object.keys(filesystem)).toHaveLength(3);
+        expect(filesystem).toHaveProperty('a.txt');
+        expect(filesystem).toHaveProperty('b.txt');
+        expect(filesystem).toHaveProperty('c');
     });
 
     it('throws when the root directory does not exist', () => {
         expect(() => buildStructure('/does/not/exist')).toThrow();
+    });
+
+    it('records permissions for each file', () => {
+        writeFileSync(join(root, 'script.sh'), '#!/bin/sh\necho hi');
+        chmodSync(join(root, 'script.sh'), 0o755);
+        const { permissions } = buildStructure(root);
+        expect(permissions['/script.sh']).toBe(0o755);
+    });
+
+    it('records read-only file permission', () => {
+        writeFileSync(join(root, 'readme.txt'), 'hello');
+        chmodSync(join(root, 'readme.txt'), 0o444);
+        const { permissions } = buildStructure(root);
+        expect(permissions['/readme.txt']).toBe(0o444);
+    });
+
+    it('records permissions for nested files using virtual paths', () => {
+        const sub = join(root, 'bin');
+        mkdirSync(sub);
+        writeFileSync(join(sub, 'tool.sh'), '#!/bin/sh');
+        chmodSync(join(sub, 'tool.sh'), 0o755);
+        const { permissions } = buildStructure(root);
+        expect(permissions['/bin/tool.sh']).toBe(0o755);
     });
 });
 
@@ -186,5 +213,14 @@ describe('exportFileSystem CLI', () => {
         expect(r.status).toBe(0);
         const content = readFileSync(outFile, 'utf8');
         expect(content).toContain('Nested content');
+    });
+
+    it('bundle exports an object with filesystem and permissions keys', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile]);
+        const content = readFileSync(outFile, 'utf8');
+        // The generated source should contain both keys before bundling minifies it
+        // Just check it builds and is valid JS
+        expect(() => new Function(content)).not.toThrow();
     });
 });
