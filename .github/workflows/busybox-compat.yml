@@ -86,6 +86,3 @@ jobs:
           echo "Total passed:  $total_pass"
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
-
-          [ "$total_fail" -eq 0 ]
-        continue-on-error: true
