@@ -21,12 +21,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Clone busybox testsuite
+      - name: Download busybox testsuite
         run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/mirror/busybox.git busybox-src
-          cd busybox-src
-          git sparse-checkout set testsuite
+          mkdir -p busybox-testsuite
+          BASE="https://raw.githubusercontent.com/mirror/busybox/master/testsuite"
+          for f in testing.sh echo.tests cat.tests grep.tests \
+                   mkdir.tests rm.tests cp.tests mv.tests chmod.tests pwd.tests; do
+            curl -fsSL "$BASE/$f" -o "busybox-testsuite/$f" \
+              && echo "Downloaded $f" \
+              || echo "Skipped $f (not found upstream)"
+          done
 
       - name: Set up brsh command wrappers
         run: |
@@ -39,7 +43,7 @@ jobs:
 
       - name: Run busybox tests
         run: |
-          cd busybox-src/testsuite
+          cd busybox-testsuite
 
           total_pass=0
           total_fail=0
@@ -60,9 +64,9 @@ jobs:
             output=$(sh "$testfile" 2>&1) || true
             echo "$output"
 
-            # Count results — busybox testing.sh prints "Ran N tests: P passed, F failed"
-            passed=$(echo "$output" | grep -oP '\d+(?= passed)' | tail -1 || true)
-            failed=$(echo "$output" | grep -oP '\d+(?= failed)' | tail -1 || true)
+            # Use absolute path to avoid resolving to brsh grep wrapper
+            passed=$(/usr/bin/grep -oP '\d+(?= passed)' <<< "$output" | tail -1 || true)
+            failed=$(/usr/bin/grep -oP '\d+(?= failed)' <<< "$output" | tail -1 || true)
             passed=${passed:-0}
             failed=${failed:-0}
             total_pass=$((total_pass + passed))
@@ -77,6 +81,6 @@ jobs:
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
 
-          # Fail the step if we have regressions but still show the full summary
+          # Fail the step if any tests fail (job-level continue-on-error keeps it non-blocking)
           [ "$total_fail" -eq 0 ]
         continue-on-error: true
