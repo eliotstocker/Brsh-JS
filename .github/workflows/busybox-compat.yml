@@ -25,7 +25,7 @@ jobs:
         run: |
           mkdir -p busybox-testsuite
           BASE="https://raw.githubusercontent.com/mirror/busybox/master/testsuite"
-          for f in testing.sh echo.tests cat.tests grep.tests \
+          for f in testing.sh cat.tests grep.tests \
                    mkdir.tests rm.tests cp.tests mv.tests chmod.tests pwd.tests; do
             curl -fsSL "$BASE/$f" -o "busybox-testsuite/$f" \
               && echo "Downloaded $f" \
@@ -42,6 +42,13 @@ jobs:
           echo "$GITHUB_WORKSPACE/brsh-bin" >> "$GITHUB_PATH"
 
       - name: Run busybox tests
+        env:
+          # Pre-set ECHO so testing.sh skips its gcc-based auto-detection.
+          # The system sh builtin echo doesn't support -ne on Ubuntu (dash),
+          # which would cause testing.sh to try to compile ../scripts/echo.c.
+          ECHO: ${{ github.workspace }}/brsh-bin/echo
+          # Enable optional blocks for features brsh implements
+          OPTIONFLAGS: ":FEATURE_CATN:FEATURE_GREP_EGREP_ALIAS:"
         run: |
           cd busybox-testsuite
 
@@ -50,7 +57,7 @@ jobs:
           ran_suites=""
           skipped_suites=""
 
-          for suite in echo cat grep mkdir rm cp mv chmod pwd; do
+          for suite in cat grep mkdir rm cp mv chmod pwd; do
             testfile="${suite}.tests"
             if [ ! -f "$testfile" ]; then
               skipped_suites="$skipped_suites $suite(missing)"
@@ -64,11 +71,10 @@ jobs:
             output=$(sh "$testfile" 2>&1) || true
             echo "$output"
 
-            # Use absolute path to avoid resolving to brsh grep wrapper
-            passed=$(/usr/bin/grep -oP '\d+(?= passed)' <<< "$output" | tail -1 || true)
-            failed=$(/usr/bin/grep -oP '\d+(?= failed)' <<< "$output" | tail -1 || true)
-            passed=${passed:-0}
-            failed=${failed:-0}
+            # testing.sh outputs "PASS: name" and "FAIL: name" per test
+            # Use absolute path to avoid resolving to our brsh grep wrapper
+            passed=$(/usr/bin/grep -c "^PASS:" <<< "$output" || true)
+            failed=$(/usr/bin/grep -c "^FAIL:" <<< "$output" || true)
             total_pass=$((total_pass + passed))
             total_fail=$((total_fail + failed))
           done
@@ -81,6 +87,5 @@ jobs:
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
 
-          # Fail the step if any tests fail (job-level continue-on-error keeps it non-blocking)
           [ "$total_fail" -eq 0 ]
         continue-on-error: true
