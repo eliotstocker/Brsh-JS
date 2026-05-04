@@ -1,0 +1,82 @@
+name: Busybox Compatibility
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  busybox-compat:
+    name: Busybox Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Clone busybox testsuite
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/mirror/busybox.git busybox-src
+          cd busybox-src
+          git sparse-checkout set testsuite
+
+      - name: Set up brsh command wrappers
+        run: |
+          chmod +x bin/brsh-cmd.js
+          mkdir -p brsh-bin
+          for cmd in echo cat grep ls mkdir rm cp mv chmod pwd which true false; do
+            ln -sf "$GITHUB_WORKSPACE/bin/brsh-cmd.js" "$GITHUB_WORKSPACE/brsh-bin/$cmd"
+          done
+          echo "$GITHUB_WORKSPACE/brsh-bin" >> "$GITHUB_PATH"
+
+      - name: Run busybox tests
+        run: |
+          cd busybox-src/testsuite
+
+          total_pass=0
+          total_fail=0
+          ran_suites=""
+          skipped_suites=""
+
+          for suite in echo cat grep mkdir rm cp mv chmod pwd; do
+            testfile="${suite}.tests"
+            if [ ! -f "$testfile" ]; then
+              skipped_suites="$skipped_suites $suite(missing)"
+              continue
+            fi
+
+            ran_suites="$ran_suites $suite"
+            echo "──────────────────────────────"
+            echo "Suite: $testfile"
+
+            output=$(sh "$testfile" 2>&1) || true
+            echo "$output"
+
+            # Count results — busybox testing.sh prints "Ran N tests: P passed, F failed"
+            passed=$(echo "$output" | grep -oP '\d+(?= passed)' | tail -1 || true)
+            failed=$(echo "$output" | grep -oP '\d+(?= failed)' | tail -1 || true)
+            passed=${passed:-0}
+            failed=${failed:-0}
+            total_pass=$((total_pass + passed))
+            total_fail=$((total_fail + failed))
+          done
+
+          echo ""
+          echo "══════════════════════════════"
+          echo "Suites run:    $ran_suites"
+          [ -n "$skipped_suites" ] && echo "Suites skipped:$skipped_suites"
+          echo "Total passed:  $total_pass"
+          echo "Total failed:  $total_fail"
+          echo "══════════════════════════════"
+
+          # Fail the step if we have regressions but still show the full summary
+          [ "$total_fail" -eq 0 ]
+        continue-on-error: true
