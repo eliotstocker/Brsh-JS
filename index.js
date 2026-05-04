@@ -64,6 +64,10 @@ class Shell extends EventEmitter {
         return this._lastCode;
     }
 
+    set stdin(data) {
+        this._stdin = data;
+    }
+
     onInput(char) {
         if(this.runningCommand && this.runningCommand.onInput && this.runningCommand.captureInput) {
             this.runningCommand.onInput(char);
@@ -175,6 +179,10 @@ class Shell extends EventEmitter {
 
         if(instance.requiresFilesystem) {
             instance.fs = this.context.fs;
+        }
+
+        if (this._stdin !== undefined) {
+            instance.stdin = this._stdin;
         }
 
         this.runningCommand = instance;

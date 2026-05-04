@@ -36,16 +36,43 @@ const shell = new Shell({
 
 let exitCode = 0;
 let ran = false;
+let shellReady = false;
+let stdinReady = false;
+let stdinData = '';
 
 shell.on('stdOut', line => process.stdout.write(line + '\n'));
 shell.on('stdErr', line => process.stderr.write(line + '\n'));
 shell.on('exitCode', code => { exitCode = code; });
 
-shell.on('status', status => {
-    if (status === Shell.STATUS_READY && !ran) {
+function maybeRun() {
+    if (shellReady && stdinReady && !ran) {
         ran = true;
+        shell.stdin = stdinData;
         shell.onCommand(commandLine)
             .then(() => process.exit(exitCode))
             .catch(() => process.exit(1));
     }
+}
+
+shell.on('status', status => {
+    if (status === Shell.STATUS_READY) {
+        shellReady = true;
+        maybeRun();
+    }
 });
+
+if (process.stdin.isTTY) {
+    stdinReady = true;
+} else {
+    const chunks = [];
+    process.stdin.on('data', chunk => chunks.push(chunk));
+    process.stdin.on('end', () => {
+        stdinData = Buffer.concat(chunks).toString();
+        stdinReady = true;
+        maybeRun();
+    });
+    process.stdin.on('error', () => {
+        stdinReady = true;
+        maybeRun();
+    });
+}
