@@ -246,3 +246,155 @@ describe('test and [ ]', () => {
         expect(exitCode).toBe(0);
     });
 });
+
+describe('echo flags', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('-n suppresses trailing newline (emits same lines)', async () => {
+        const { output } = await run(shell, 'echo -n hello');
+        expect(output).toContain('hello');
+    });
+
+    it('-e interprets \\n as a newline', async () => {
+        const { output } = await run(shell, 'echo -e "line1\\nline2"');
+        expect(output).toContain('line1');
+        expect(output).toContain('line2');
+    });
+
+    it('-e interprets \\t as a tab', async () => {
+        const { output } = await run(shell, 'echo -e "a\\tb"');
+        expect(output.join('')).toContain('a\tb');
+    });
+
+    it('-ne combines -n and -e', async () => {
+        const { output } = await run(shell, 'echo -ne "x\\ny"');
+        expect(output).toContain('x');
+        expect(output).toContain('y');
+    });
+});
+
+describe('cat flags', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: { home: { 'file.txt': 'line1\nline2\nline3' } }
+        });
+    });
+
+    it('-n numbers all lines', async () => {
+        const { output } = await run(shell, 'cat -n /home/file.txt');
+        expect(output.some(l => l.match(/^\s+1\t/))).toBe(true);
+        expect(output.some(l => l.match(/^\s+3\t/))).toBe(true);
+    });
+
+    it('concatenates multiple files', async () => {
+        await run(shell, 'mkdir /home/more');
+        await run(shell, 'mkdir -p /tmp');
+        // create second file via a different approach — use the filesystem directly
+        shell.context.fs.setFileByPath('/home/file2.txt', 'line4');
+        const { output } = await run(shell, 'cat /home/file.txt /home/file2.txt');
+        expect(output).toContain('line1');
+        expect(output).toContain('line4');
+    });
+
+    it('-s squeezes consecutive blank lines', async () => {
+        shell.context.fs.setFileByPath('/home/blank.txt', 'a\n\n\nb');
+        const { output } = await run(shell, 'cat -s /home/blank.txt');
+        const blanks = output.filter(l => l === '');
+        expect(blanks.length).toBeLessThanOrEqual(1);
+    });
+
+    it('errors on missing file', async () => {
+        const { errors, exitCode } = await run(shell, 'cat /nope.txt');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.length).toBeGreaterThan(0);
+    });
+});
+
+describe('ls new flags', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'file.txt': 'hello',
+                    subdir: { 'inner.txt': 'inner' }
+                }
+            },
+            cwd: '/home'
+        });
+    });
+
+    it('-1 prints one entry per line', async () => {
+        const { output } = await run(shell, 'ls -1 /home');
+        expect(output.length).toBeGreaterThanOrEqual(2);
+        expect(output).toContain('file.txt');
+        expect(output).toContain('subdir');
+    });
+
+    it('-F appends / to directories', async () => {
+        const { output } = await run(shell, 'ls -F /home');
+        expect(output.join(' ')).toMatch(/subdir\//);
+    });
+
+    it('-R lists subdirectories recursively', async () => {
+        const { output } = await run(shell, 'ls -R /home');
+        expect(output.join('\n')).toMatch(/inner\.txt/);
+    });
+});
+
+describe('test new operators', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: { home: { 'file.txt': 'data', subdir: {} } }
+        });
+    });
+
+    it('-e returns true for existing file', async () => {
+        const { exitCode } = await run(shell, 'test -e /home/file.txt');
+        expect(exitCode).toBe(0);
+    });
+
+    it('-e returns true for existing directory', async () => {
+        const { exitCode } = await run(shell, 'test -e /home/subdir');
+        expect(exitCode).toBe(0);
+    });
+
+    it('-e returns false for missing path', async () => {
+        const { exitCode } = await run(shell, 'test -e /nope');
+        expect(exitCode).toBe(1);
+    });
+
+    it('-x returns true for executable file', async () => {
+        await shell.onCommand('chmod +x /home/file.txt');
+        const { exitCode } = await run(shell, 'test -x /home/file.txt');
+        expect(exitCode).toBe(0);
+    });
+
+    it('-x returns false for non-executable file', async () => {
+        const { exitCode } = await run(shell, 'test -x /home/file.txt');
+        expect(exitCode).toBe(1);
+    });
+
+    it('-a requires both conditions to be true', async () => {
+        const { exitCode } = await run(shell, 'test -e /home/file.txt -a -d /home/subdir');
+        expect(exitCode).toBe(0);
+    });
+
+    it('-a fails if one condition is false', async () => {
+        const { exitCode } = await run(shell, 'test -e /home/file.txt -a -d /home/file.txt');
+        expect(exitCode).toBe(1);
+    });
+
+    it('-o succeeds if either condition is true', async () => {
+        const { exitCode } = await run(shell, 'test -e /nope -o -e /home/file.txt');
+        expect(exitCode).toBe(0);
+    });
+
+    it('-s returns true for non-empty file', async () => {
+        const { exitCode } = await run(shell, 'test -s /home/file.txt');
+        expect(exitCode).toBe(0);
+    });
+});

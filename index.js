@@ -22,11 +22,12 @@ require('string.prototype.matchall').shim();
 class Shell extends EventEmitter {
     constructor(options) {
         super();
-        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/'} = options;
+        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/', onFsChange} = options;
 
         this.context = new Context(Object.assign({}, options, {
             clearFn: this.clear.bind(this),
-            destroyFn: this.destroy.bind(this)
+            destroyFn: this.destroy.bind(this),
+            onFsChange: typeof onFsChange === 'function' ? onFsChange : null
         }));
 
         this.context.setVar('PATH', path);
