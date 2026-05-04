@@ -22,7 +22,8 @@ jobs:
         run: |
           # package-lock.json resolved ansi_up via git+ssh (local git URL rewriting).
           # GitHub Actions has no SSH key, so rewrite SSH back to HTTPS for npm ci.
-          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          # npm strips "git+" before passing to git, so the rewrite must match "ssh://..."
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
       - name: Install dependencies
         run: npm ci
