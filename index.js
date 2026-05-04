@@ -22,7 +22,7 @@ require('string.prototype.matchall').shim();
 class Shell extends EventEmitter {
     constructor(options) {
         super();
-        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/', onFsChange} = options;
+        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/', onFsChange, useRealFilesystem = false} = options;
 
         this.context = new Context(Object.assign({}, options, {
             clearFn: this.clear.bind(this),
@@ -32,7 +32,11 @@ class Shell extends EventEmitter {
 
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
-        this.context.setFilesystem(filesystem, permissions);
+        if (useRealFilesystem) {
+            this.context.setNodeFilesystem(cwd);
+        } else {
+            this.context.setFilesystem(filesystem, permissions);
+        }
         this.context.setCwd(cwd);
 
         this._loadDefaultCommands();
@@ -147,7 +151,9 @@ class Shell extends EventEmitter {
 
         let Cmd;
         try {
-            Cmd = this._parseCommand(bin.toLowerCase());
+            Cmd = this._parseCommand(
+            (bin.startsWith('/') || bin.startsWith('./')) ? bin : bin.toLowerCase()
+        );
         } catch(e) {
             this.emit('stdErr', e.message);
             this.lastCode = 1;
