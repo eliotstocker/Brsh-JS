@@ -383,7 +383,7 @@ describe('cat flags', () => {
     let shell;
     beforeEach(async () => {
         shell = await createShell({
-            filesystem: { home: { 'file.txt': 'line1\nline2\nline3' } }
+            filesystem: { home: { 'file.txt': 'line1\nline2\nline3\n' } }
         });
     });
 
@@ -397,7 +397,7 @@ describe('cat flags', () => {
         await run(shell, 'mkdir /home/more');
         await run(shell, 'mkdir -p /tmp');
         // create second file via a different approach — use the filesystem directly
-        shell.context.fs.setFileByPath('/home/file2.txt', 'line4');
+        shell.context.fs.setFileByPath('/home/file2.txt', 'line4\n');
         const { output } = await run(shell, 'cat /home/file.txt /home/file2.txt');
         expect(output).toContain('line1');
         expect(output).toContain('line4');
