@@ -89,6 +89,7 @@ jobs:
           echo "Total passed:  $total_pass"
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
+          [ "$total_fail" -eq 0 ] || exit 1
 
       - name: Download busybox individual test suites
         run: |
@@ -131,9 +132,11 @@ jobs:
               fi
 
               tmpdir=$(mktemp -d)
+              set +e
               (cd "$tmpdir" && sh -e "$GITHUB_WORKSPACE/$testfile" >/dev/null 2>&1)
               result=$?
-              rm -rf "$tmpdir"
+              set -e
+              /bin/rm -rf "$tmpdir"
 
               if [ $result -eq 0 ]; then
                 echo "PASS: $applet/$testname"
@@ -151,3 +154,4 @@ jobs:
           echo "Total skipped: $total_skip"
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
+          [ "$total_fail" -eq 0 ] || exit 1
