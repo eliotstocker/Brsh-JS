@@ -474,7 +474,7 @@ describe('cp', () => {
     it('errors when copying directory without -r', async () => {
         const { exitCode, errors } = await run(shell, 'cp /home/subdir /home/dest2');
         expect(exitCode).toBeGreaterThan(0);
-        expect(errors.join(' ')).toMatch(/-r/i);
+        expect(errors.join(' ')).toMatch(/omitting directory/i);
     });
 
     it('errors on missing source', async () => {
