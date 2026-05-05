@@ -30,6 +30,12 @@ jobs:
           done
           echo "$GITHUB_WORKSPACE/brsh-bin" >> "$GITHUB_PATH"
 
+      - name: Verify brsh-cmd.js loads
+        run: |
+          echo "Node: $(node --version)"
+          node -e "require('./index.js'); console.log('index.js loaded OK')" || echo "LOAD FAILED"
+          echo hello | node bin/brsh-cmd.js echo test-word 2>&1 && echo "brsh OK" || echo "brsh FAILED"
+
       - name: Download busybox .tests suites (testing.sh format)
         run: |
           mkdir -p busybox-testsuite
@@ -132,8 +138,9 @@ jobs:
               fi
 
               tmpdir=$(mktemp -d)
+              tmpout=$(mktemp)
               set +e
-              (cd "$tmpdir" && sh -e "$GITHUB_WORKSPACE/$testfile" >/dev/null 2>&1)
+              (cd "$tmpdir" && sh -xe "$GITHUB_WORKSPACE/$testfile") >"$tmpout" 2>&1
               result=$?
               set -e
               /bin/rm -rf "$tmpdir"
@@ -142,9 +149,11 @@ jobs:
                 echo "PASS: $applet/$testname"
                 total_pass=$((total_pass + 1))
               else
-                echo "FAIL: $applet/$testname"
+                echo "FAIL: $applet/$testname (exit $result)"
+                [ $total_fail -lt 5 ] && sed 's/^/    /' "$tmpout" | tail -20
                 total_fail=$((total_fail + 1))
               fi
+              /bin/rm -f "$tmpout"
             done
           done
 
