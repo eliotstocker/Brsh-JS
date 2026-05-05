@@ -12,7 +12,7 @@ const Shell = require('../index.js');
 const nodePath = require('path');
 
 const scriptName = nodePath.basename(process.argv[1]).replace(/\.js$/, '');
-const isMultiCall = scriptName === 'brsh-cmd';
+const isMultiCall = scriptName === 'brsh-cmd' || scriptName === 'busybox';
 
 const cmdName = isMultiCall ? process.argv[2] : scriptName;
 const args = isMultiCall ? process.argv.slice(3) : process.argv.slice(2);

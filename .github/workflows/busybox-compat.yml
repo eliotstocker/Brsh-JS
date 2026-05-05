@@ -21,7 +21,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Download busybox testsuite
+      - name: Set up brsh command wrappers
+        run: |
+          chmod +x bin/brsh-cmd.js
+          mkdir -p brsh-bin
+          for cmd in echo cat grep ls mkdir rm cp mv chmod pwd which true false busybox; do
+            ln -sf "$GITHUB_WORKSPACE/bin/brsh-cmd.js" "$GITHUB_WORKSPACE/brsh-bin/$cmd"
+          done
+          echo "$GITHUB_WORKSPACE/brsh-bin" >> "$GITHUB_PATH"
+
+      - name: Download busybox .tests suites (testing.sh format)
         run: |
           mkdir -p busybox-testsuite
           BASE="https://raw.githubusercontent.com/mirror/busybox/master/testsuite"
@@ -32,16 +41,7 @@ jobs:
               || echo "Skipped $f (not found upstream)"
           done
 
-      - name: Set up brsh command wrappers
-        run: |
-          chmod +x bin/brsh-cmd.js
-          mkdir -p brsh-bin
-          for cmd in echo cat grep ls mkdir rm cp mv chmod pwd which true false; do
-            ln -sf "$GITHUB_WORKSPACE/bin/brsh-cmd.js" "$GITHUB_WORKSPACE/brsh-bin/$cmd"
-          done
-          echo "$GITHUB_WORKSPACE/brsh-bin" >> "$GITHUB_PATH"
-
-      - name: Run busybox tests
+      - name: Run busybox .tests suites
         env:
           # Pre-set ECHO so testing.sh skips its gcc-based auto-detection.
           # The system sh builtin echo doesn't support -ne on Ubuntu (dash),
@@ -87,5 +87,67 @@ jobs:
           echo "Suites run:    $ran_suites"
           [ -n "$skipped_suites" ] && echo "Suites skipped:$skipped_suites"
           echo "Total passed:  $total_pass"
+          echo "Total failed:  $total_fail"
+          echo "══════════════════════════════"
+
+      - name: Download busybox individual test suites
+        run: |
+          mkdir -p busybox-indiv
+          API="https://api.github.com/repos/mirror/busybox/contents/testsuite"
+          for dir in pwd rm mkdir mv cat echo cp; do
+            mkdir -p "busybox-indiv/$dir"
+            urls=$(curl -fsSL "$API/$dir" \
+              | python3 -c "import sys,json; [print(e['download_url']) for e in json.load(sys.stdin) if e['type']=='file']" \
+              2>/dev/null || true)
+            for url in $urls; do
+              fname=$(basename "$url")
+              curl -fsSL "$url" -o "busybox-indiv/$dir/$fname" \
+                && echo "Downloaded $dir/$fname" \
+                || echo "Skipped $dir/$fname"
+            done
+          done
+
+      - name: Run busybox individual tests
+        run: |
+          total_pass=0
+          total_fail=0
+          total_skip=0
+
+          for dir in busybox-indiv/pwd busybox-indiv/rm busybox-indiv/mkdir \
+                     busybox-indiv/mv busybox-indiv/cat busybox-indiv/echo \
+                     busybox-indiv/cp; do
+            applet=$(basename "$dir")
+            [ -d "$dir" ] || continue
+
+            for testfile in "$dir"/*; do
+              [ -f "$testfile" ] || continue
+              testname=$(basename "$testfile")
+
+              # Skip tests with FEATURE guards (requires busybox .config knowledge)
+              if /usr/bin/grep -q "^# FEATURE:" "$testfile" 2>/dev/null; then
+                echo "SKIP: $applet/$testname (feature guard)"
+                total_skip=$((total_skip + 1))
+                continue
+              fi
+
+              tmpdir=$(mktemp -d)
+              (cd "$tmpdir" && sh -e "$GITHUB_WORKSPACE/$testfile" >/dev/null 2>&1)
+              result=$?
+              rm -rf "$tmpdir"
+
+              if [ $result -eq 0 ]; then
+                echo "PASS: $applet/$testname"
+                total_pass=$((total_pass + 1))
+              else
+                echo "FAIL: $applet/$testname"
+                total_fail=$((total_fail + 1))
+              fi
+            done
+          done
+
+          echo ""
+          echo "══════════════════════════════"
+          echo "Total passed:  $total_pass"
+          echo "Total skipped: $total_skip"
           echo "Total failed:  $total_fail"
           echo "══════════════════════════════"
