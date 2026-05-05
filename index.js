@@ -5,6 +5,7 @@ const EventEmitter = require('events');
 const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
+const WasmCommand = require('./lib/WasmCommand');
 const Command = require('./lib/Command');
 
 const builtins = require('./lib/builtins');
@@ -284,6 +285,13 @@ class Shell extends EventEmitter {
                 return ScriptCommand.bind(this, handle);
             }
 
+            if(this._isWasmFile(command, handle)) {
+                if (!this.context.fs.isExecutable(command)) {
+                    throw new Error(`${command}: permission denied`);
+                }
+                return WasmCommand.bind(null, command);
+            }
+
             throw new Error(`${command}: permission denied`);
         }
         const cmd = this.context.getCommand(command);
@@ -310,7 +318,7 @@ class Shell extends EventEmitter {
 
     static _sanitiseCommandPart(string) {
         return (string.startsWith('"') && string.endsWith('"'))
-            || (string.startsWith('\'') && string.endsWith('\''))
+            || (string.startsWith("'") && string.endsWith("'"))
             ? string.substring(1, string.length - 1) : string;
     }
 
@@ -437,6 +445,15 @@ class Shell extends EventEmitter {
             throw new Error('quote expression not closed');
         }
         return parts;
+    }
+
+    _isWasmFile(path, content) {
+        if (path.endsWith('.wasm') || path.endsWith('.wat')) return true;
+        if (typeof content !== 'string') return false;
+        // Binary WASM: magic bytes \0asm
+        if (content.charCodeAt(0) === 0 && content.slice(1, 4) === 'asm') return true;
+        // WAT text format
+        return content.trimStart().startsWith('(module');
     }
 
     static _escapeRegExp(string) {
