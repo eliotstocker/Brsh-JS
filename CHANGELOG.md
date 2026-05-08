@@ -1,3 +1,10 @@
+## [2.1.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.0...v2.1.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* trigger Pages via workflow_run instead of release event ([#21](https://github.com/eliotstocker/Brsh-JS/issues/21)) ([ab5dd36](https://github.com/eliotstocker/Brsh-JS/commit/ab5dd36b149e5424dd57da766241b783e4f31cca))
+
 # [2.1.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.0.0...v2.1.0) (2026-05-08)
 
 
