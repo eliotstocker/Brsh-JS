@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.0.0...v2.1.0) (2026-05-08)
+
+
+### Features
+
+* deploy demo to GitHub Pages on each release ([#20](https://github.com/eliotstocker/Brsh-JS/issues/20)) ([25aefcf](https://github.com/eliotstocker/Brsh-JS/commit/25aefcfdd63ec820d2367bac208e28dc2ba449f3))
+
 # [2.0.0](https://github.com/eliotstocker/Brsh-JS/compare/v1.4.0...v2.0.0) (2026-05-07)
 
 
