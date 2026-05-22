@@ -7,9 +7,16 @@
 }
 
 .terminal__line {
-    white-space: pre-wrap;
+    white-space: pre;
+    overflow: hidden;
     min-height: 1.15em;
     line-height: 1.15em;
+}
+
+.terminal--wrap .terminal__line,
+.terminal--wrap li {
+    white-space: pre-wrap;
+    overflow: visible;
 }
 
 @keyframes blink {

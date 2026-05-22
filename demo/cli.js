@@ -2,11 +2,12 @@
 
 const Shell = require('../index');
 const readline = require('readline');
+const filesystem = require('./loadFilesystem');
 
 const shell = new Shell({
     profile: '/root/.profile',
     cwd: '/root',
-    filesystem: require('./filesystem')
+    filesystem
 });
 
 shell.on('stdOut', line => {

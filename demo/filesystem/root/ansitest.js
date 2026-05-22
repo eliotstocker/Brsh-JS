@@ -23,23 +23,24 @@ class Ansitest extends Command {
     }
 
     run() {
+        console.log("running ansitest");
         const lines = [
             ansiColors.black("Black"),
-            ansiColors.bgblack("Black Background"),
+            ansiColors.bgBlack("Black Background"),
             ansiColors.blue("Blue"),
-            ansiColors.bgblue("Blue Background"),
+            ansiColors.bgBlue("Blue Background"),
             ansiColors.cyan("Cyan"),
-            ansiColors.bgcyan("Cyan Background"),
+            ansiColors.bgCyan("Cyan Background"),
             ansiColors.green("Green"),
-            ansiColors.bggreen("Green Background"),
+            ansiColors.bgGreen("Green Background"),
             ansiColors.magenta("Magenta"),
-            ansiColors.bgmagenta("Magenta Background"),
+            ansiColors.bgMagenta("Magenta Background"),
             ansiColors.red("Red"),
-            ansiColors.bgred("Red Background"),
+            ansiColors.bgRed("Red Background"),
             ansiColors.white("White"),
-            ansiColors.bgwhite("White Background"),
+            ansiColors.bgWhite("White Background"),
             ansiColors.yellow("Yellow"),
-            ansiColors.bgyellow("Yellow Background"),
+            ansiColors.bgYellow("Yellow Background"),
 
             ansiColors.bold("Bold"),
             ansiColors.dim("Dim"), //not yet supported

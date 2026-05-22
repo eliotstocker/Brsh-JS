@@ -54,8 +54,7 @@ describe('buildStructure', () => {
         writeFileSync(join(root, 'readme.txt'), 'hello');
         const { filesystem } = buildStructure(root);
         expect(filesystem).toHaveProperty('readme.txt');
-        expect(filesystem['readme.txt']).toMatch(/^require\('/);
-        expect(filesystem['readme.txt']).toContain('readme.txt');
+        expect(filesystem['readme.txt']).toBe('hello');
     });
 
     it('strips the .js extension from JavaScript file keys', () => {
@@ -66,11 +65,11 @@ describe('buildStructure', () => {
         expect(filesystem['app']).toMatch(/^require\('/);
     });
 
-    it('uses an absolute path in the require() string', () => {
-        writeFileSync(join(root, 'data.txt'), 'content');
+    it('uses an absolute path in the require() string for JavaScript files', () => {
+        writeFileSync(join(root, 'data.js'), 'module.exports = "content"');
         const { filesystem } = buildStructure(root);
-        const reqPath = filesystem['data.txt'].match(/require\('(.+?)'\)/)[1];
-        expect(reqPath).toBe(resolve(root, 'data.txt'));
+        const reqPath = filesystem.data.match(/require\('(.+?)'\)/)[1];
+        expect(reqPath).toBe(resolve(root, 'data.js'));
     });
 
     it('recursively includes nested directories', () => {
@@ -202,6 +201,27 @@ describe('exportFileSystem CLI', () => {
         runCLI([root, '-v', 'FS', '-o', outFile]);
         const content = readFileSync(outFile, 'utf8');
         expect(content).toContain('Hello World');
+    });
+
+    it('builds a directory tree without requiring a root index.js wrapper', () => {
+        rmSync(join(root, 'app.js'));
+        mkdirSync(join(root, 'bin'));
+        writeFileSync(join(root, 'bin', 'tool.js'), 'module.exports = function tool() {}');
+
+        const outFile = join(outDir, 'fs.js');
+        const result = runCLI([root, '-v', 'FS', '-o', outFile]);
+        const content = readFileSync(outFile, 'utf8');
+
+        expect(result.status).toBe(0);
+        expect(content).toContain('Hello World');
+        expect(content).toContain('tool');
+    });
+
+    it('bundle does not contain readFileSync references', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile]);
+        const content = readFileSync(outFile, 'utf8');
+        expect(content).not.toContain('readFileSync');
     });
 
     it('handles a nested directory structure', () => {

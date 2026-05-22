@@ -1,7 +1,5 @@
 'use strict';
 
-const EventEmitter = require('events');
-
 const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
@@ -10,9 +8,12 @@ const Command = require('./lib/Command');
 
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
+const events = require('events');
 
 const variableRegex = /\${?([\w\d]+)}?/g;
 
+
+const EventEmitter = events.EventEmitter || events.default || events;
 //shims etc
 String.prototype.regexIndexOf = function(regex, startpos) {
     const indexOf = this.substring(startpos || 0).search(regex);
@@ -166,10 +167,11 @@ class Shell extends EventEmitter {
             return;
         }
 
+        const isCommandClass = (C) => typeof C === 'function' && typeof C.prototype.run === 'function' && typeof C.prototype.runCommand === 'function';
         let instance;
         if(Cmd.prototype instanceof LocalCommand || new Cmd() instanceof ScriptCommand) {
             instance = new Cmd(args, this.context);
-        } else if(Cmd.prototype instanceof Command) {
+        } else if(isCommandClass(Cmd)) {
             instance = new Cmd(args);
         } else {
             this.emit('stdErr', `${bin}: Command not found`);
@@ -274,7 +276,10 @@ class Shell extends EventEmitter {
                 throw new Error(`${command}: is a directory`);
             }
 
-            if(handle.prototype && handle.prototype instanceof Command) {
+            if(handle.prototype && typeof handle.prototype.run === 'function' && typeof handle.prototype.runCommand === 'function') {
+                if (!this.context.fs.isExecutable(command)) {
+                    throw new Error(`${command}: permission denied`);
+                }
                 return handle;
             }
 
