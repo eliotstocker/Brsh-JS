@@ -1,3 +1,10 @@
+## [2.1.3](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.2...v2.1.3) (2026-05-22)
+
+
+### Bug Fixes
+
+* lots of small issues and a build time mangling problem. ([93cdcc5](https://github.com/eliotstocker/Brsh-JS/commit/93cdcc5791b92fe5c2d346e0eef4b4bf722d0058))
+
 ## [2.1.2](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.1...v2.1.2) (2026-05-22)
 
 
