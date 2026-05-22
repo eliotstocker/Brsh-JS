@@ -133,6 +133,63 @@ describe('shell script execution', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Permission checks
+// ---------------------------------------------------------------------------
+
+describe('execute permission enforcement', () => {
+    const SCRIPT = '#!/sh.js\necho ran';
+
+    it('refuses to run a script without execute permission', async () => {
+        const shell = await createShell({
+            filesystem: { scripts: { 'nox.sh': SCRIPT } },
+            permissions: { '/scripts/nox.sh': 0o644 }
+        });
+        const { errors, exitCode } = await run(shell, '/scripts/nox.sh');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('runs a script that has execute permission', async () => {
+        const shell = await createShell({
+            filesystem: { scripts: { 'withx.sh': SCRIPT } },
+            permissions: { '/scripts/withx.sh': 0o755 }
+        });
+        const { output, exitCode } = await run(shell, '/scripts/withx.sh');
+        expect(output).toContain('ran');
+        expect(exitCode).toBe(0);
+    });
+
+    it('refuses to run a script when only owner-execute bit is cleared (0o644)', async () => {
+        const shell = await createShell({
+            filesystem: { scripts: { 'nox2.sh': SCRIPT } },
+            permissions: { '/scripts/nox2.sh': 0o644 }
+        });
+        const { errors, exitCode } = await run(shell, '/scripts/nox2.sh');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('runs a Command class that has no explicit permission entry (defaults to executable)', async () => {
+        const shell = await createShell({
+            filesystem: { apps: { hello: HelloApp } }
+        });
+        const { output, exitCode } = await run(shell, '/apps/hello');
+        expect(output).toContain('Hello from JS app');
+        expect(exitCode).toBe(0);
+    });
+
+    it('refuses to run a Command class with explicit non-executable permission', async () => {
+        const shell = await createShell({
+            filesystem: { apps: { hello: HelloApp } },
+            permissions: { '/apps/hello': 0o644 }
+        });
+        const { errors, exitCode } = await run(shell, '/apps/hello');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Conditional execution via &&
 // ---------------------------------------------------------------------------
 

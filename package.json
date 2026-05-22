@@ -25,6 +25,7 @@
     "build": "npm run build:shell && npm run build:terminal",
     "build:shell": "vite build --config vite.config.shell.js",
     "build:terminal": "vite build --config vite.config.terminal.js",
+    "shell": "node bin/brsh-shell.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"

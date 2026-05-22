@@ -86,9 +86,9 @@ describe('buildStructure', () => {
         const b = join(a, 'b');
         mkdirSync(a);
         mkdirSync(b);
-        writeFileSync(join(b, 'deep.txt'), 'deep');
+        writeFileSync(join(b, 'deep.js'), 'module.exports = "deep"');
         const { filesystem } = buildStructure(root);
-        expect(filesystem.a.b['deep.txt']).toMatch(/^require\('/);
+        expect(filesystem.a.b['deep']).toMatch(/^require\('/);
     });
 
     it('ignores .DS_Store files', () => {
