@@ -1,3 +1,10 @@
+## [2.1.5](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.4...v2.1.5) (2026-05-22)
+
+
+### Bug Fixes
+
+* binary serialisation ([b2aa4d2](https://github.com/eliotstocker/Brsh-JS/commit/b2aa4d23d4b4d696b1fdc965fd55f2155c8eb44d))
+
 ## [2.1.4](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.3...v2.1.4) (2026-05-22)
 
 
