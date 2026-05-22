@@ -130,4 +130,22 @@ describe('useRealFilesystem', () => {
         const { output } = await run(shell, scriptPath);
         expect(output).toContain('Hello World');
     });
+
+    it('executable .js files are loaded as command classes', async () => {
+        const commandPath = path.resolve(__dirname, '../lib/Command.js');
+        const jsContent = `'use strict';
+const Command = require(${JSON.stringify(commandPath)});
+class Hello extends Command {
+    static get name() { return 'hello'; }
+    run() { return Promise.resolve('hello from js bin'); }
+}
+module.exports = Hello;
+`;
+        const binPath = path.join(tmpDir, 'hello.js');
+        fs.writeFileSync(binPath, jsContent);
+        fs.chmodSync(binPath, 0o755);
+        const { output, exitCode } = await run(shell, binPath);
+        expect(exitCode).toBe(0);
+        expect(output).toContain('hello from js bin');
+    });
 });

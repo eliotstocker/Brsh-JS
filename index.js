@@ -42,8 +42,9 @@ class Shell extends EventEmitter {
         }
         this.context.setCwd(cwd);
 
+        const pathDirExisted = useRealFilesystem || this.context.fs.exists(this.context.getVar('PATH'));
         this._loadDefaultCommands();
-        this._loadBuiltinCommands();
+        this._loadBuiltinCommands(pathDirExisted);
 
         this._lastCode = 0;
 
@@ -84,10 +85,15 @@ class Shell extends EventEmitter {
         });
     }
 
-    _loadBuiltinCommands() {
+    _loadBuiltinCommands(pathDirExisted = false) {
         builtins.forEach(command => {
             this.context.setCommand(command);
         });
+        // Lock the bin directory only if we implicitly created it.
+        // If the caller supplied their own bin dir, respect their permissions.
+        if (!pathDirExisted) {
+            this.context.fs.setMode(this.context.getVar('PATH'), 0o555);
+        }
     }
 
     _loadProfile(profile) {
@@ -344,6 +350,23 @@ class Shell extends EventEmitter {
                     throw new Error(`${command}: permission denied`);
                 }
                 return WasmCommand.bind(null, command);
+            }
+
+            // Executable .js files on the real filesystem: load via require() as a Command class.
+            if (this.context.fs.isRealFilesystem && typeof handle === 'string' && command.endsWith('.js')) {
+                if (!this.context.fs.isExecutable(command)) {
+                    throw new Error(`${command}: permission denied`);
+                }
+                const abs = this.context.fs.absolutePath(command);
+                try {
+                    const mod = require(abs);
+                    const Cls = mod.default || mod;
+                    if (typeof Cls === 'function' && typeof Cls.prototype.run === 'function' && typeof Cls.prototype.runCommand === 'function') {
+                        return Cls;
+                    }
+                } catch(e) {
+                    // Not a loadable command module — fall through
+                }
             }
 
             throw new Error(`${command}: permission denied`);
