@@ -9,6 +9,7 @@ const Command = require('./lib/Command');
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
 const events = require('events');
+const BaseFileSystem = require('./lib/BaseFileSystem');
 
 const variableRegex = /\${?([\w\d]+)}?/g;
 
@@ -147,7 +148,29 @@ class Shell extends EventEmitter {
         }
 
         if (!args.length) return;
-        let bin = args.shift();
+        let bin = args.shift().value;
+
+        // Parse output redirection (> and >>)
+        // Quoted tokens (hasQuote: true) are never treated as redirects.
+        let redirectPath = null;
+        let appendMode = false;
+        const filteredArgs = [];
+        for (let i = 0; i < args.length; i++) {
+            const { value: arg, hasQuote } = args[i];
+            if (!hasQuote && (arg === '>>' || arg === '>') && i + 1 < args.length) {
+                appendMode = arg === '>>';
+                redirectPath = args[++i].value;
+            } else if (!hasQuote && arg.startsWith('>>') && arg.length > 2) {
+                appendMode = true;
+                redirectPath = arg.slice(2);
+            } else if (!hasQuote && arg.startsWith('>') && arg.length > 1) {
+                appendMode = false;
+                redirectPath = arg.slice(1);
+            } else {
+                filteredArgs.push(arg);
+            }
+        }
+        args = filteredArgs;
 
         //short circuit for aliases
         const alias = this.context.getAlias(bin);
@@ -181,7 +204,7 @@ class Shell extends EventEmitter {
         }
 
         if(instance.requiresFilesystem) {
-            instance.fs = this.context.fs;
+            instance.fs = this.context.fs.sandbox();
         }
 
         if (this._stdin !== undefined) {
@@ -196,7 +219,33 @@ class Shell extends EventEmitter {
         }
 
         return instance.runCommand().then(result => {
-            this._emitOutput(result.getStdOutput());
+            const stdOutput = result.getStdOutput();
+
+            if (redirectPath) {
+                const absTarget = this.context.fs.absolutePath(redirectPath);
+                const outLines = stdOutput.filter(l => l.type === 'out').map(l => l.string);
+                const content = appendMode
+                    ? (() => {
+                        const existing = this.context.fs._getFileRaw(absTarget);
+                        return typeof existing === 'string'
+                            ? existing + '\n' + outLines.join('\n')
+                            : outLines.join('\n');
+                    })()
+                    : outLines.join('\n');
+                try {
+                    this.context.fs.setFileByPath(absTarget, content, true);
+                } catch (e) {
+                    this.emit('stdErr', `${redirectPath}: Permission denied`);
+                    this.lastCode = 1;
+                    this.emit('exitCode', this.lastCode);
+                    delete this.runningCommand;
+                    return;
+                }
+                this._emitOutput(stdOutput.filter(l => l.type === 'err'));
+            } else {
+                this._emitOutput(stdOutput);
+            }
+
             this.lastCode = result.getExitCode();
             this.emit('exitCode', this.lastCode);
             delete this.runningCommand;
@@ -267,7 +316,7 @@ class Shell extends EventEmitter {
 
     _parseCommand(command) {
         if(command.startsWith('./') || command.startsWith('/')) {
-            const handle = this.context.fs.getFileByPath(command);
+            const handle = this.context.fs._getFileRaw(command);
             if(!handle) {
                 throw new Error(`${command}: No such file or directory`);
             }
@@ -316,9 +365,9 @@ class Shell extends EventEmitter {
             )
         );
         // Keep tokens that are non-empty OR were explicitly quoted (preserves "" → '')
+        // Preserve hasQuote so redirect detection can skip quoted tokens.
         return replaced
-            .filter(({ value, hasQuote }) => value.length > 0 || hasQuote)
-            .map(({ value }) => value);
+            .filter(({ value, hasQuote }) => value.length > 0 || hasQuote);
     }
 
     static _sanitiseCommandPart(string) {
@@ -471,6 +520,7 @@ Shell.STATUS_WORKING = 'WORKING';
 Shell.STATUS_DESTROYED = 'DESTROYED';
 
 Shell.Command = Command;
+Shell.FS = BaseFileSystem;
 
 global.shell = Shell;
 module.exports = Shell;

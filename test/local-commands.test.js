@@ -360,6 +360,17 @@ describe('mkdir', () => {
         const { exitCode } = await run(shell, 'mkdir');
         expect(exitCode).toBeGreaterThan(0);
     });
+
+    it('errors when parent directory is not writable', async () => {
+        const shell = await createShell({
+            filesystem: { protected: {} },
+            permissions: { '/protected': 0o555 }
+        });
+        const { exitCode, errors } = await run(shell, 'mkdir /protected/newdir');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/permission denied/i);
+        expect(shell.context.fs.getFileByPath('/protected/newdir')).toBeNull();
+    });
 });
 
 describe('rm', () => {

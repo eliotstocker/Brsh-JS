@@ -21,9 +21,9 @@
     "brsh": "bin/brsh-shell.js"
   },
   "scripts": {
-    "start": "vite --config vite.config.js demo/",
-    "build:demofs": "node bin/exportFileSystem.js ./demo/filesystem -o ./demo/fs.js -v fs",
-    "build:demo": "npm run build:demofs && vite build --config vite.config.demo.js && node -e \"require('fs').copyFileSync('demo/fs.js','dist-demo/fs.js')\"",
+    "start": "node bin/exportFileSystem.js ./demo/filesystem -o ./demo/fs.js -v fs && vite --config vite.config.js demo/",
+    "build:demofs": "node bin/exportFileSystem.js ./demo/filesystem -o ./dist-demo/fs.js -v fs",
+    "build:demo": "vite build --config vite.config.demo.js && npm run build:demofs",
     "build": "npm run build:shell && npm run build:terminal",
     "build:shell": "vite build --config vite.config.shell.js",
     "build:terminal": "vite build --config vite.config.terminal.js",

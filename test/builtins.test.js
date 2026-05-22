@@ -136,6 +136,17 @@ describe('cat', () => {
         expect(errors.length).toBeGreaterThan(0);
         expect(exitCode).toBeGreaterThan(0);
     });
+
+    it('errors when reading a file without read permission', async () => {
+        const shell = await createShell({
+            filesystem: { home: { 'secret.txt': 'private' } },
+            permissions: { '/home/secret.txt': 0o000 }
+        });
+        const { errors, exitCode } = await run(shell, 'cat /home/secret.txt');
+        expect(errors.length).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/permission denied/i);
+        expect(exitCode).toBeGreaterThan(0);
+    });
 });
 
 describe('true / false', () => {

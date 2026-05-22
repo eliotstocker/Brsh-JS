@@ -215,6 +215,48 @@ describe('unclosed quote error', () => {
     });
 });
 
+describe('output redirection', () => {
+    it('writes command stdout to a file with >', async () => {
+        const shell = await createShell({ filesystem: { home: {} } });
+        await run(shell, 'echo hello > /home/out.txt');
+        expect(shell.context.fs.getFileByPath('/home/out.txt')).toBe('hello');
+    });
+
+    it('overwrites an existing file with >', async () => {
+        const shell = await createShell({ filesystem: { home: { 'out.txt': 'old' } } });
+        await run(shell, 'echo new > /home/out.txt');
+        expect(shell.context.fs.getFileByPath('/home/out.txt')).toBe('new');
+    });
+
+    it('appends to an existing file with >>', async () => {
+        const shell = await createShell({ filesystem: { home: { 'out.txt': 'first' } } });
+        await run(shell, 'echo second >> /home/out.txt');
+        expect(shell.context.fs.getFileByPath('/home/out.txt')).toBe('first\nsecond');
+    });
+
+    it('errors when target file is not writable', async () => {
+        const shell = await createShell({
+            filesystem: { home: { 'readonly.txt': 'original' } },
+            permissions: { '/home/readonly.txt': 0o444 }
+        });
+        const { errors, exitCode } = await run(shell, 'echo foo > /home/readonly.txt');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/permission denied/i);
+        expect(shell.context.fs.getFileByPath('/home/readonly.txt')).toBe('original');
+    });
+
+    it('errors when target directory is not writable', async () => {
+        const shell = await createShell({
+            filesystem: { protected: {} },
+            permissions: { '/protected': 0o555 }
+        });
+        const { errors, exitCode } = await run(shell, 'echo foo > /protected/newfile.txt');
+        expect(exitCode).toBeGreaterThan(0);
+        expect(errors.join(' ')).toMatch(/permission denied/i);
+        expect(shell.context.fs.getFileByPath('/protected/newfile.txt')).toBeNull();
+    });
+});
+
 describe('tabCompletion', () => {
     it('returns matching built-in commands from PATH', async () => {
         const shell = await createShell();

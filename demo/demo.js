@@ -1,5 +1,10 @@
-import Shell from 'brsh';
-import Terminal from 'brsh/terminal';
+import _Shell from 'brsh';
+import _Terminal from 'brsh/terminal';
+
+// @originjs/vite-plugin-commonjs wraps CJS module.exports in a namespace
+// object in production builds, so unwrap .default if present.
+const Shell = _Shell?.default ?? _Shell;
+const Terminal = _Terminal?.default ?? _Terminal;
 
 const filesystem = globalThis.fs?.filesystem;
 const permissions = globalThis.fs?.permissions;
