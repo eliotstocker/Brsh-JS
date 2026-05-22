@@ -6,15 +6,203 @@ An extensible shell written in Javascript with an accompanying terminal emulator
 [Demo](http://eliotstocker.github.io/Brsh-JS/)
 
 ## What is it?
-A Unix like Shell backend and Terminal Emulator that allows you top create a Terminal within you webapp.
+A Unix-like Shell backend and Terminal Emulator that lets you embed a working terminal in a webapp, or run an interactive shell against the real filesystem in Node.
 
 ## Why?
 No idea, you tell me
 
 ## Known Issues
 * Input on android is not working
-* scripting isn't complete yet, if, while etc not implemented
-* commands can't currently stream output, it is only returned once the app process finishes
+
+# How?
+To create a new terminal first add both Terminal and Shell to your page:
+```html
+<script src="//unpkg.com/brsh@2/dist/shell.min.js"></script>
+<script src="//unpkg.com/brsh@2/dist/terminal.min.js"></script>
+```
+
+You may also use it as a node module. Install via npm:
+```shell
+npm i brsh
+```
+
+Import the terminal in your code:
+```js
+// ESM
+import Terminal from 'brsh/terminal';
+// CJS
+const Terminal = require('brsh/terminal');
+```
+
+You may then implement the terminal like so:
+```js
+const term = new Terminal({
+    el: document.body,
+    profile: '/test/.profile',
+    cwd: '/test',
+    filesystem: { test: { '.profile': 'echo "hi there!"' } },
+    cursor: 'blink',
+    outputAnimation: 'type',
+    animateSpeed: 2
+});
+```
+
+The Terminal constructor options extend those of the Shell:
+
+### Terminal Specific options
+| option          | required | default       | description |
+| ------          | -------- | -------       | ----------- |
+| el              | Yes      |               | A HTMLElement to fill with the terminal emulator |
+| font            | No       | `Roboto Mono` | Name of a Google Webfont to use for the console font; a monospace font is recommended |
+| cursor          | No       | `none`        | One of: `none`, `block`, `blink`. If `block` or `blink`, a cursor block character is shown at the end of the current line |
+| outputAnimation | No       | `none`        | One of: `none`, `type`. If `type`, each character is appended in order for a retro typing effect |
+| animateSpeed    | No       | `1`           | Characters per browser frame for the `type` animation. Higher is faster |
+| onExit          | No       | `null`        | Function called when the shell session is destroyed. Without this, typing `exit` will leave the terminal in an ended state |
+| mobileInput     | No       | `click`       | One of `none` or `click`. Set to `click` to enable tap-to-focus (and show the on-screen keyboard on mobile) |
+
+### Shell options
+| option             | required | default     | description |
+| ------             | -------- | -------     | ----------- |
+| path               | No       | `'/bin'`    | Path in which to look for (and register) built-in binaries |
+| profile            | No       |             | A script to run before user interactivity (see [scripts](#writing-scripts)) |
+| hostname           | No       | `'browser'` | Hostname shown in the prompt |
+| filesystem         | No       | `{}`        | Object representing the virtual file system. Classes extending `Command` are treated as executables. Use [exportFileSystem](bin/Readme.md) to generate this from a real directory |
+| permissions        | No       | `{}`        | Map of virtual absolute paths to Unix mode bits (e.g. `{ '/bin/myscript.sh': 0o755 }`). Files without an entry default to `0o644`; function/class entries default to `0o755` |
+| cwd                | No       | `'/'`       | Starting working directory |
+| useRealFilesystem  | No       | `false`     | When `true`, uses the real Node.js filesystem instead of the virtual one. Intended for CLI use |
+
+## Running an interactive shell in Node
+
+`npm run shell` starts an interactive brsh session against the real filesystem, with tab completion:
+
+```shell
+npm run shell
+```
+
+To use it programmatically:
+
+```js
+const Shell = require('brsh');
+
+const shell = new Shell({
+    useRealFilesystem: true,
+    cwd: process.cwd(),
+    hostname: 'myapp'
+});
+```
+
+## Shell Public Methods
+| Method        | Arguments                     | Description |
+| ------        | ---------                     | ----------- |
+| onCommand     | `String` command              | Run a command string in the shell, e.g. `ls -al ./root`. Returns a Promise |
+| tabCompletion | `String` partial              | Returns `{ path, options }` with completion candidates, or `null` if there are none |
+| getPrompt     |                               | Returns the current hostname and cwd formatted as a prompt string |
+| destroy       | `Number` code (optional)      | Destroys the shell instance and emits the `exit` event |
+| clear         |                               | Emits the `clear` event |
+
+## Shell Events
+| Event    | Arguments       | Description |
+| ------   | ---------       | ----------- |
+| stdOut   | `String` line   | A line of standard output to display to the user |
+| stdErr   | `String` line   | A line of standard error to display to the user |
+| exitCode | `Number` code   | Exit code of the most recently completed command |
+| status   | `String` status | Shell status. `Shell.STATUS_READY` means a new command can be accepted; `Shell.STATUS_WORKING` means a command is running |
+| clear    |                 | Fired when the terminal should clear the screen |
+| exit     | `Number` code   | Fired when the shell is destroyed. `code` is the final exit code |
+
+An example CLI implementation can be found in [bin/brsh-shell.js](bin/brsh-shell.js).
+
+# Built-in and Local commands
+
+These are simplified versions of standard Unix commands.
+
+**Built-ins** (always available, no filesystem lookup):
+* `cat`
+* `echo`
+* `false`
+* `grep`
+* `ls`
+* `test` / `[`
+* `true`
+
+**Local commands**:
+* `alias`
+* `cd`
+* `chmod`
+* `clear`
+* `cp`
+* `curl`
+* `exit`
+* `export`
+* `jsfunction`
+* `mkdir`
+* `mv`
+* `pwd`
+* `read`
+* `rm`
+* `source`
+* `which`
+
+## Adding new commands
+
+Create a class that extends `Command`. You can access it via `Shell.Command`:
+```js
+class MyCommand extends Shell.Command {
+    get name() { return 'mycommand'; }
+
+    run() {
+        this.stdOut = 'Hello!';
+        return Promise.resolve();
+    }
+}
+```
+
+Or import `Command` directly:
+```js
+// ESM
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Command = require('brsh/lib/Command');
+```
+
+For more on writing commands see the [lib docs](lib/Readme.md).
+
+### Streaming output
+
+Commands can emit output in real time before they finish by calling `this.flush()`:
+
+```js
+class ProgressCommand extends Shell.Command {
+    get name() { return 'progress'; }
+
+    run() {
+        this.stdOut = 'Starting...';
+        this.flush();                     // emits stdOut immediately
+        return doWork().then(result => result);
+    }
+}
+```
+
+## Writing Scripts
+
+Scripts must start with the shebang `#!/sh.js`:
+
+```sh
+#!/sh.js
+echo "Hello from a script"
+```
+
+Scripts run in a sub-shell and do not share context with the parent. To persist context changes use `source`.
+
+**Note:** when using [exportFileSystem](bin/Readme.md), do not give scripts a `.js` extension — that causes them to be loaded as JavaScript modules rather than script strings.
+
+## More Examples
+On my website I have extended the functionality adding some simple extra utilities such as an ANSI image viewer and a markdown parser based on open-source node CLI utilities.
+
+[See the site in action here](https://piratemedia.tv/)
+
+[GitHub source code here](https://github.com/eliotstocker/piratemedia.tv)
+
 
 # How?
 To create a new terminal first add both Terminal and Shell to your page like so:
