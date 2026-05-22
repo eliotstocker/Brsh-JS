@@ -1,3 +1,10 @@
+## [2.1.4](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.3...v2.1.4) (2026-05-22)
+
+
+### Bug Fixes
+
+* running js when using nodeFileSystem ([4573c51](https://github.com/eliotstocker/Brsh-JS/commit/4573c51ca5c9522eeb88978909a6cafef6fe6b30))
+
 ## [2.1.3](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.2...v2.1.3) (2026-05-22)
 
 
