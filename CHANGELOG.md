@@ -1,3 +1,10 @@
+# [2.3.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.2.1...v2.3.0) (2026-05-23)
+
+
+### Features
+
+* add set cmd and allow -c -e etc to brsh-shell ([02be2a6](https://github.com/eliotstocker/Brsh-JS/commit/02be2a68594526d8c6685092afcf4b115b0c033c))
+
 ## [2.2.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.2.0...v2.2.1) (2026-05-23)
 
 
