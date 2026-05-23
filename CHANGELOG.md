@@ -1,3 +1,10 @@
+## [2.2.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.2.0...v2.2.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* script flushing and input issues ([7c5d583](https://github.com/eliotstocker/Brsh-JS/commit/7c5d583f23042c2457cbec967335c658e51916cc))
+
 # [2.2.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.5...v2.2.0) (2026-05-23)
 
 
