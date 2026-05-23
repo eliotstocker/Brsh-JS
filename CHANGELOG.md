@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.5...v2.2.0) (2026-05-23)
+
+
+### Features
+
+* more scriptiing support ([48ce7ec](https://github.com/eliotstocker/Brsh-JS/commit/48ce7ec1fc9affef5a5767ed55664d67f63018f1))
+
 ## [2.1.5](https://github.com/eliotstocker/Brsh-JS/compare/v2.1.4...v2.1.5) (2026-05-22)
 
 
