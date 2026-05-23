@@ -63,3 +63,11 @@ function ask() {
 }
 
 rl.on('close', () => { if (!destroyed) process.exit(0); });
+
+// Forward typed lines to commands waiting for input (e.g. `read`)
+rl.on('line', function(line) {
+    if (shell.runningCommand && shell.runningCommand.captureInput) {
+        for (const char of line) { shell.onInput(char); }
+        shell.onInput('Enter');
+    }
+});
