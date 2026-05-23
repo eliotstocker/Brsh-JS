@@ -285,3 +285,53 @@ describe('tabCompletion', () => {
         expect(result.options).toContain('mydir/');
     });
 });
+
+describe('Pipes', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('pipes stdout of first command to stdin of second', async () => {
+        const { output } = await run(shell, 'echo hello world | cat');
+        expect(output.join('\n')).toContain('hello world');
+    });
+
+    it('filters output through grep via pipe', async () => {
+        const { output } = await run(shell, 'echo -e "foo\nbar\nbaz" | grep bar');
+        expect(output.join('\n')).toContain('bar');
+        expect(output.join('\n')).not.toContain('foo');
+    });
+
+    it('supports chaining three commands', async () => {
+        const { output } = await run(shell, 'echo -e "alpha\nbeta\nalpha" | grep alpha | cat');
+        const joined = output.join('\n');
+        expect(joined).toContain('alpha');
+        expect(joined).not.toContain('beta');
+    });
+
+    it('sets exit code from the last command in the pipe', async () => {
+        const { exitCode } = await run(shell, 'echo hello | grep nomatch');
+        expect(exitCode).toBe(1);
+    });
+
+    it('does not confuse || with |', async () => {
+        await shell.onCommand('export X=0');
+        const { output } = await run(shell, 'false || echo fallback');
+        expect(output.join('\n')).toContain('fallback');
+    });
+});
+
+describe('. (dot) command', () => {
+    it('is an alias for source and executes a script file', async () => {
+        const shell = await createShell({
+            filesystem: {
+                bin: {},
+                home: {
+                    'greet.sh': '#!/bin/sh\nexport GREETED=yes\n'
+                }
+            }
+        });
+        await shell.onCommand('cd /home');
+        await shell.onCommand('. /home/greet.sh');
+        expect(shell.context.getVar('GREETED')).toBe('yes');
+    });
+});

@@ -102,9 +102,10 @@ class Shell extends EventEmitter {
 
     onCommand(raw, events = true) {
         const segments = this._splitInput(raw);
+        const groups = this._groupPipes(segments);
         let shouldRun = true;
 
-        const promise = segments.reduce((chain, { command, op }) => {
+        const promise = groups.reduce((chain, { commands, op }) => {
             return chain.then(() => {
                 if (!shouldRun) {
                     if (op === '&&') shouldRun = this._lastCode === 0;
@@ -112,7 +113,7 @@ class Shell extends EventEmitter {
                     else if (op === ';') shouldRun = true;
                     return;
                 }
-                return this._runCommand(command).then(() => {
+                return this._runPipeChain(commands).then(() => {
                     if (op === '&&') shouldRun = this._lastCode === 0;
                     else if (op === '||') shouldRun = this._lastCode !== 0;
                     else if (op === ';') shouldRun = true;
@@ -318,6 +319,10 @@ class Shell extends EventEmitter {
                     segments.push({ command: current.trim(), op: '||' });
                     current = ''; i += 2; continue;
                 }
+                if (ch === '|') {
+                    segments.push({ command: current.trim(), op: '|' });
+                    current = ''; i++; continue;
+                }
                 if (ch === ';') {
                     segments.push({ command: current.trim(), op: ';' });
                     current = ''; i++; continue;
@@ -462,6 +467,56 @@ class Shell extends EventEmitter {
         await subshell.onCommand(cmd, false);
 
         return lines.join('\n').trimEnd();
+    }
+
+    _groupPipes(segments) {
+        const groups = [];
+        let commands = [];
+        for (const { command, op } of segments) {
+            commands.push(command);
+            if (op !== '|') {
+                groups.push({ commands, op });
+                commands = [];
+            }
+        }
+        if (commands.length) groups.push({ commands, op: null });
+        return groups;
+    }
+
+    async _runPipeChain(commands) {
+        if (commands.length === 1) {
+            return this._runCommand(commands[0]);
+        }
+        let stdinData = undefined;
+        for (let i = 0; i < commands.length; i++) {
+            const isLast = i === commands.length - 1;
+            if (isLast) {
+                if (stdinData !== undefined) this._stdin = stdinData;
+                try {
+                    await this._runCommand(commands[i]);
+                } finally {
+                    delete this._stdin;
+                }
+            } else {
+                stdinData = await this._captureForPipe(commands[i], stdinData);
+            }
+        }
+    }
+
+    async _captureForPipe(cmd, stdin) {
+        const subshell = new global.shell({
+            cwd: this.context.fs.cwd,
+            filesystem: this.context.fs.getRaw(),
+            permissions: this.context.fs.getRawPermissions()
+        });
+        subshell.context.source(this.context);
+        if (stdin !== undefined) subshell.stdin = stdin;
+        const lines = [];
+        subshell.on('stdOut', line => lines.push(line));
+        subshell.on('stdErr', line => this.emit('stdErr', line));
+        await subshell.onCommand(cmd, false);
+        this.lastCode = subshell.lastCode;
+        return lines.join('\n');
     }
 
     // Returns Array<{value: string, hasQuote: boolean}>.
