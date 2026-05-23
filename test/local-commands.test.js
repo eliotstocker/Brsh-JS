@@ -602,3 +602,67 @@ describe('jsfunction', () => {
         expect(output).toContain('10');
     });
 });
+
+describe('set', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('prints all variables with no arguments', async () => {
+        await shell.onCommand('export TESTVAR=hello');
+        const { output } = await run(shell, 'set');
+        expect(output.join('\n')).toMatch(/TESTVAR=hello/);
+    });
+
+    it('sets a flag with -e', async () => {
+        await shell.onCommand('set -e');
+        expect(shell.context.getVar('-')).toContain('e');
+    });
+
+    it('clears a flag with +e', async () => {
+        await shell.onCommand('set -e');
+        await shell.onCommand('set +e');
+        expect(shell.context.getVar('-')).not.toContain('e');
+    });
+
+    it('sets multiple flags at once', async () => {
+        await shell.onCommand('set -ex');
+        const flags = shell.context.getVar('-');
+        expect(flags).toContain('e');
+        expect(flags).toContain('x');
+    });
+
+    it('set -- replaces positional parameters', async () => {
+        await shell.onCommand('set -- alpha beta gamma');
+        expect(shell.context.getVar('1')).toBe('alpha');
+        expect(shell.context.getVar('2')).toBe('beta');
+        expect(shell.context.getVar('3')).toBe('gamma');
+        expect(shell.context.getVar('#')).toBe('3');
+    });
+
+    it('set -- with no args clears positional parameters', async () => {
+        await shell.onCommand('set -- alpha beta');
+        await shell.onCommand('set --');
+        expect(shell.context.getVar('1')).toBe('');
+        expect(shell.context.getVar('#')).toBe('0');
+    });
+
+    it('-e in a script stops execution after a failing command', async () => {
+        const scriptShell = await createShell({
+            filesystem: { scripts: { 'errexit.sh': '#!/sh.js\nset -e\necho before\nfalse\necho after' } },
+            permissions: { '/scripts/errexit.sh': 0o755 }
+        });
+        const { output } = await run(scriptShell, '/scripts/errexit.sh');
+        expect(output).toContain('before');
+        expect(output).not.toContain('after');
+    });
+
+    it('-x in a script traces commands to stderr', async () => {
+        const scriptShell = await createShell({
+            filesystem: { scripts: { 'xtrace.sh': '#!/sh.js\nset -x\necho hello' } },
+            permissions: { '/scripts/xtrace.sh': 0o755 }
+        });
+        const { errors, output } = await run(scriptShell, '/scripts/xtrace.sh');
+        expect(errors.join('\n')).toContain('+ echo hello');
+        expect(output).toContain('hello');
+    });
+});
