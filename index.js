@@ -156,6 +156,15 @@ class Shell extends EventEmitter {
         if (!args.length) return;
         let bin = args.shift().value;
 
+        // Bare variable assignment: VAR=value (only when no additional args)
+        if (args.length === 0 && /^[A-Za-z_]\w*=/.test(bin)) {
+            const eqIdx = bin.indexOf('=');
+            this.context.setVar(bin.slice(0, eqIdx), bin.slice(eqIdx + 1));
+            this.lastCode = 0;
+            this.emit('exitCode', 0);
+            return;
+        }
+
         // Parse output redirection (> and >>)
         // Quoted tokens (hasQuote: true) are never treated as redirects.
         let redirectPath = null;
