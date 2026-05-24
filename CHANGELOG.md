@@ -1,3 +1,10 @@
+## [2.4.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.4.0...v2.4.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* better sequencial execution ([6a2a688](https://github.com/eliotstocker/Brsh-JS/commit/6a2a688dc4ad05ad49caa6f3f196395d17e7a473))
+
 # [2.4.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.3.0...v2.4.0) (2026-05-23)
 
 
