@@ -444,7 +444,11 @@ class Shell extends EventEmitter {
     }
 
     _evalArithmetic(expr) {
-        const expanded = expr.replace(/\${?([\w\d]+)}?/g, (m, name) =>
+        // First expand $VAR and ${VAR} references
+        let expanded = expr.replace(/\${?([\w\d]+)}?/g, (m, name) =>
+            String(parseInt(this.context.getVar(name)) || 0));
+        // Then expand bare variable names (e.g. I in $((I+1)))
+        expanded = expanded.replace(/\b([A-Za-z_]\w*)\b/g, (m, name) =>
             String(parseInt(this.context.getVar(name)) || 0));
         if (!/^[\d\s+\-*/%()]+$/.test(expanded.trim())) return 0;
         try {

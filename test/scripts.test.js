@@ -332,3 +332,94 @@ describe('for loop', () => {
         expect(output).toContain('2y');
     });
 });
+
+describe('break and continue', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'while-break.sh': '#!/sh.js\nI=0\nwhile true; do\nI=$((I+1))\nif [ $I -eq 3 ]; then\nbreak\nfi\necho $I\ndone\necho done',
+                    'for-break.sh': '#!/sh.js\nfor x in a b c d; do\nif [ $x = c ]; then\nbreak\nfi\necho $x\ndone\necho end',
+                    'for-continue.sh': '#!/sh.js\nfor x in 1 2 3 4 5; do\nif [ $x = 3 ]; then\ncontinue\nfi\necho $x\ndone',
+                    'nested-break.sh': '#!/sh.js\nfor a in 1 2; do\nfor b in x y z; do\nif [ $b = y ]; then\nbreak\nfi\necho $a$b\ndone\ndone',
+                }
+            },
+            permissions: execPerms(
+                '/scripts/while-break.sh',
+                '/scripts/for-break.sh',
+                '/scripts/for-continue.sh',
+                '/scripts/nested-break.sh'
+            )
+        });
+    });
+
+    it('break exits a while loop early', async () => {
+        const { output } = await run(shell, '/scripts/while-break.sh');
+        expect(output).toContain('1');
+        expect(output).toContain('2');
+        expect(output).not.toContain('3');
+        expect(output).toContain('done');
+    });
+
+    it('break exits a for loop early', async () => {
+        const { output } = await run(shell, '/scripts/for-break.sh');
+        expect(output).toContain('a');
+        expect(output).toContain('b');
+        expect(output).not.toContain('c');
+        expect(output).not.toContain('d');
+        expect(output).toContain('end');
+    });
+
+    it('continue skips the current iteration', async () => {
+        const { output } = await run(shell, '/scripts/for-continue.sh');
+        expect(output).toContain('1');
+        expect(output).toContain('2');
+        expect(output).not.toContain('3');
+        expect(output).toContain('4');
+        expect(output).toContain('5');
+    });
+
+    it('break only exits the innermost loop', async () => {
+        const { output } = await run(shell, '/scripts/nested-break.sh');
+        expect(output).toContain('1x');
+        expect(output).toContain('2x');
+        expect(output).not.toContain('1y');
+        expect(output).not.toContain('2y');
+    });
+});
+
+describe('sequential script execution', () => {
+    it('pipe output appears before the next script line runs', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'pipe-seq.sh': '#!/sh.js\necho first | cat\necho second'
+                }
+            },
+            permissions: execPerms('/scripts/pipe-seq.sh')
+        });
+        const output = [];
+        shell.on('stdOut', l => output.push(l));
+        await shell.onCommand('/scripts/pipe-seq.sh', false);
+        expect(output.indexOf('first')).toBeLessThan(output.indexOf('second'));
+    });
+
+    it('loop iterations run in order when body contains a pipe', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'loop-pipe.sh': '#!/sh.js\nfor x in 1 2 3; do\necho $x | cat\ndone'
+                }
+            },
+            permissions: execPerms('/scripts/loop-pipe.sh')
+        });
+        const output = [];
+        shell.on('stdOut', l => output.push(l));
+        await shell.onCommand('/scripts/loop-pipe.sh', false);
+        expect(output[0]).toBe('1');
+        expect(output[1]).toBe('2');
+        expect(output[2]).toBe('3');
+    });
+});

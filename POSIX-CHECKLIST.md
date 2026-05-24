@@ -22,8 +22,8 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `while` / `do` / `done`
 - [x] `for var in list; do … done`
 - [x] `case … in … esac`
-- [ ] `break [n]` — exit loop
-- [ ] `continue [n]` — next iteration
+- [x] `break [n]` — exit loop
+- [x] `continue [n]` — next iteration
 - [ ] Subshell `( cmds )`
 
 ### Functions
@@ -56,7 +56,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 
 ### Expansion
 - [x] Command substitution `$(cmd)`
-- [x] Arithmetic expansion `$((expr))`
+- [x] Arithmetic expansion `$((expr))` (both `$VAR` and bare `VAR` forms)
 - [ ] Tilde expansion (`~`, `~user`)
 - [ ] Filename glob expansion (`*`, `?`, `[a-z]`)
 - [ ] Brace expansion `{a,b,c}` *(non-POSIX but common)*
@@ -69,8 +69,8 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `source` / `. script` *(`.` alias missing — see below)*
 - [x] `.` — dot command (alias for `source`)
 - [ ] `:` — no-op, always exits 0
-- [ ] `break [n]`
-- [ ] `continue [n]`
+- [x] `break [n]`
+- [x] `continue [n]`
 - [ ] `shift [n]`
 - [ ] `unset var`
 - [ ] `readonly var`
