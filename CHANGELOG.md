@@ -1,3 +1,10 @@
+## [2.5.3](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.2...v2.5.3) (2026-05-25)
+
+
+### Bug Fixes
+
+* terminal column sizing ([555ba7f](https://github.com/eliotstocker/Brsh-JS/commit/555ba7f4a961a2db227d844c33039c1a9c3e2f3b))
+
 ## [2.5.2](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.1...v2.5.2) (2026-05-25)
 
 
