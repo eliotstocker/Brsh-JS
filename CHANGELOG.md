@@ -1,3 +1,10 @@
+## [2.5.5](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.4...v2.5.5) (2026-05-25)
+
+
+### Bug Fixes
+
+* terminal blink rendering ([94fe5ab](https://github.com/eliotstocker/Brsh-JS/commit/94fe5aba48ca2c28baef3aab345488a285878cc2))
+
 ## [2.5.4](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.3...v2.5.4) (2026-05-25)
 
 
