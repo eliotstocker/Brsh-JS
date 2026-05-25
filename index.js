@@ -34,6 +34,12 @@ class Shell extends EventEmitter {
             onFsChange: typeof onFsChange === 'function' ? onFsChange : null
         }));
 
+        this._readonlyContext = Object.freeze({
+            getVar:     (v) => this.context.getVar(v),
+            getAlias:   (a) => this.context.getAlias(a),
+            getCommand: (c) => this.context.getCommand(c),
+        });
+
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
         if (useRealFilesystem) {
@@ -223,7 +229,7 @@ class Shell extends EventEmitter {
         if(Cmd.prototype instanceof LocalCommand || new Cmd() instanceof ScriptCommand) {
             instance = new Cmd(args, this.context);
         } else if(isCommandClass(Cmd)) {
-            instance = new Cmd(args);
+            instance = new Cmd(args, this._readonlyContext);
         } else {
             this.emit('stdErr', `${bin}: Command not found`);
             this.lastCode = 1;
