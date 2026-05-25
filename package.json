@@ -1,6 +1,6 @@
 {
   "name": "brsh",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "A unix like shell written in javascript",
   "main": "./dist/shell.min.js",
   "module": "./dist/shell.es.js",

@@ -1,3 +1,10 @@
+## [2.5.2](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.1...v2.5.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* symlinking etc sorted ([7baf30d](https://github.com/eliotstocker/Brsh-JS/commit/7baf30df99f3d4fd6d46b3da2a337c3ff6efe755))
+
 ## [2.5.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.0...v2.5.1) (2026-05-25)
 
 
