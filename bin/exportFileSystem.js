@@ -77,56 +77,16 @@ try {
 }
 const { filesystem, permissions } = struct;
 
-/**
- * Recursively splits a filesystem tree into two trees:
- *   code  – entries whose value is a require() placeholder (bundled by esbuild)
- *   data  – entries whose value is a plain string/null (text / binary content)
- */
-function splitFilesystem(node) {
-    const code = {};
-    const data = {};
-    for (const [key, value] of Object.entries(node)) {
-        if (value !== null && typeof value === 'object') {
-            const [subCode, subData] = splitFilesystem(value);
-            if (Object.keys(subCode).length > 0) code[key] = subCode;
-            if (Object.keys(subData).length > 0) data[key] = subData;
-        } else if (typeof value === 'string' && value.startsWith("require('")) {
-            code[key] = value;
-        } else {
-            data[key] = value;
-        }
-    }
-    return [code, data];
+if (options.compress && !options.output) {
+    console.log('--compress requires --output (-o) to be set');
+    process.exit(1);
 }
 
-let JS;
+const fsJson = JSON.stringify(filesystem, null, options.pretty ? 2 : null);
+const permJson = JSON.stringify(permissions, null, options.pretty ? 2 : null);
+const fsJS = fsJson.replace(/"(require\('.*?'\))"/gm, '$1');
 
-if (options.compress) {
-    const [codeFilesystem, dataFilesystem] = splitFilesystem(filesystem);
-
-    // Compress the data portion (text/binary file contents + permissions)
-    const dataPayload = JSON.stringify({ filesystem: dataFilesystem, permissions });
-    const compressed = zlib.gzipSync(Buffer.from(dataPayload, 'utf8'));
-    const b64 = compressed.toString('base64');
-
-    // Serialise only the code portion (require() entries) with substitution
-    const codeFsJSON = JSON.stringify(codeFilesystem);
-    const codeFsJS = codeFsJSON.replace(/"(require\('.*?'\))"/gm, '$1');
-
-    JS = `
-const __c="${b64}";
-function __bd(s){const b=atob(s);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
-async function __decompress(b64){const ds=new DecompressionStream("gzip");const w=ds.writable.getWriter();w.write(__bd(b64));w.close();const buf=await new Response(ds.readable).arrayBuffer();return JSON.parse(new TextDecoder().decode(buf));}
-function __merge(a,b){const r={};const ks=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of ks){const av=a&&a[k],bv=b&&b[k];r[k]=(av!==null&&typeof av==="object"&&bv!==null&&typeof bv==="object")?__merge(av,bv):(av!==undefined?av:bv);}return r;}
-const __codeFs=${codeFsJS};
-module.exports=__decompress(__c).then(function(__d){return{filesystem:__merge(__codeFs,__d.filesystem),permissions:__d.permissions};});
-`;
-} else {
-    const fsJson = JSON.stringify(filesystem, null, options.pretty ? 2 : null);
-    const permJson = JSON.stringify(permissions, null, options.pretty ? 2 : null);
-    const fsJS = fsJson.replace(/"(require\('.*?'\))"/gm, '$1');
-    JS = `module.exports = { filesystem: ${fsJS}, permissions: ${permJson} }`;
-}
+const JS = `module.exports = { filesystem: ${fsJS}, permissions: ${permJson} }`;
 
 const tf = tmp.fileSync({ postfix: '.tmp.js' });
 fs.writeFileSync(tf.name, JS);
@@ -195,5 +155,40 @@ esbuild.build({
     alias,
 })
     .then(() => {
+        if (options.compress) {
+            // Post-process: gzip the entire esbuild output.
+            // The compressed bytes are written to <output>.gz as raw binary.
+            // The JS file is replaced with a tiny loader that fetches the .gz,
+            // decompresses it, and executes it — no base64 overhead.
+            const bundle = fs.readFileSync(options.output, 'utf8');
+            // Append a return statement so new Function() can hand back the value
+            const codeToCompress = bundle + `\nreturn ${options.variable};`;
+            const compressed = zlib.gzipSync(Buffer.from(codeToCompress, 'utf8'));
+            const gzPath = options.output.replace(/\.js$/, '') + '.brfs';
+            fs.writeFileSync(gzPath, compressed);
+
+            const varName = options.variable;
+            // The loader captures document.currentScript.src synchronously
+            // (unavailable once the async IIFE runs) and derives the .brfs URL.
+            const loader =
+                `globalThis.${varName}=(function(){` +
+                `var s=typeof document!=="undefined"&&document.currentScript?document.currentScript.src:` +
+                    `typeof location!=="undefined"?location.href:null;` +
+                `if(!s)throw new Error("${varName}: cannot resolve .brfs URL");` +
+                `var u=s.replace(/\\.js(\\?[^#]*)?$/,".brfs");` +
+                `return fetch(u)` +
+                    `.then(function(r){return r.arrayBuffer();})` +
+                    `.then(function(b){` +
+                        `var ds=new DecompressionStream("gzip");` +
+                        `var w=ds.writable.getWriter();` +
+                        `w.write(new Uint8Array(b));` +
+                        `w.close();` +
+                        `return new Response(ds.readable).text();` +
+                    `})` +
+                    `.then(function(code){return new Function(code)();});` +
+                `})();`;
+            fs.writeFileSync(options.output, loader);
+            console.log(`Compressed bundle written to ${gzPath}`);
+        }
         console.log('Build succeeded');
     });

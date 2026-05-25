@@ -1,11 +1,11 @@
 import { createRequire } from 'module';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, rmSync, statSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, rmSync, statSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { createContext, runInContext } from 'vm';
+import { gunzipSync } from 'zlib';
 
 const require = createRequire(import.meta.url);
 const { buildStructure } = require('../lib/buildFilesystemStructure.js');
@@ -273,28 +273,37 @@ describe('exportFileSystem CLI --compress', () => {
         expect(r.stdout).toContain('Build succeeded');
     });
 
-    it('compressed output is valid JavaScript', () => {
+    it('writes a .brfs binary file alongside the .js loader', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        expect(existsSync(outFile)).toBe(true);
+        expect(existsSync(join(outDir, 'fs.brfs'))).toBe(true);
+    });
+
+    it('the .js loader is valid JavaScript', () => {
         const outFile = join(outDir, 'fs.js');
         runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
         const content = readFileSync(outFile, 'utf8');
         expect(() => new Function(content)).not.toThrow();
     });
 
-    it('compressed output contains DecompressionStream reference', () => {
+    it('the .js loader references DecompressionStream and fetch', () => {
         const outFile = join(outDir, 'fs.js');
         runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
         const content = readFileSync(outFile, 'utf8');
         expect(content).toContain('DecompressionStream');
+        expect(content).toContain('fetch');
+        expect(content).toContain('.brfs');
     });
 
-    it('compressed output does not contain plain text file content', () => {
+    it('the .js loader does not contain any filesystem content', () => {
         const outFile = join(outDir, 'fs.js');
         runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
         const content = readFileSync(outFile, 'utf8');
         expect(content).not.toContain('Hello World');
     });
 
-    it('compressed output is smaller than uncompressed for text-heavy filesystem', () => {
+    it('the .brfs file is smaller than the uncompressed .js bundle for text-heavy filesystem', () => {
         const textRoot = tmpDir();
         try {
             for (let i = 0; i < 20; i++) {
@@ -304,37 +313,37 @@ describe('exportFileSystem CLI --compress', () => {
             const uncompressedOut = join(outDir, 'uncompressed.js');
             runCLI([textRoot, '-v', 'FS', '-o', compressedOut, '--compress']);
             runCLI([textRoot, '-v', 'FS', '-o', uncompressedOut]);
-            expect(statSync(compressedOut).size).toBeLessThan(statSync(uncompressedOut).size);
+            expect(statSync(join(outDir, 'compressed.brfs')).size).toBeLessThan(statSync(uncompressedOut).size);
         } finally {
             rmSync(textRoot, { recursive: true, force: true });
         }
     });
 
-    it('compressed output resolves to an object with filesystem and permissions', async () => {
+    it('the .brfs file is valid gzip that decompresses to executable JS', () => {
         const outFile = join(outDir, 'fs.js');
         runCLI([root, '-v', 'TestFS', '-o', outFile, '--compress']);
-        const content = readFileSync(outFile, 'utf8');
-        const ctx = createContext({
-            atob: globalThis.atob,
-            DecompressionStream: globalThis.DecompressionStream,
-            Response: globalThis.Response,
-            TextDecoder: globalThis.TextDecoder,
-            Uint8Array,
-            Set,
-            Object,
-        });
-        runInContext(content, ctx);
-        const result = await ctx.TestFS;
+        const brfsData = readFileSync(join(outDir, 'fs.brfs'));
+        const code = gunzipSync(brfsData).toString('utf8');
+        expect(() => new Function(code)).not.toThrow();
+    });
+
+    it('the .brfs bundle resolves to an object with filesystem and permissions', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'TestFS', '-o', outFile, '--compress']);
+        const brfsData = readFileSync(join(outDir, 'fs.brfs'));
+        const code = gunzipSync(brfsData).toString('utf8');
+        const result = new Function(code)();
         expect(result).toHaveProperty('filesystem');
         expect(result).toHaveProperty('permissions');
         expect(result.filesystem['hello.txt']).toBe('Hello World');
     });
 
-    it('compressed output with JS command files still bundles the command code', () => {
+    it('the .brfs bundle contains JS command code', () => {
         const outFile = join(outDir, 'fs.js');
         runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
-        const content = readFileSync(outFile, 'utf8');
-        // app.js exports a function – its compiled form should appear in the bundle
-        expect(content.length).toBeGreaterThan(0);
+        const brfsData = readFileSync(join(outDir, 'fs.brfs'));
+        const code = gunzipSync(brfsData).toString('utf8');
+        // app.js exports a function – its compiled form must be in the bundle
+        expect(code.length).toBeGreaterThan(100);
     });
 });
