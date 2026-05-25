@@ -1,3 +1,10 @@
+# [2.5.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.4.1...v2.5.0) (2026-05-25)
+
+
+### Features
+
+* interactive commands + pico demo + filesystem compression ([255ba2b](https://github.com/eliotstocker/Brsh-JS/commit/255ba2b782276c06116ff3118eccff0794b98ec7))
+
 ## [2.4.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.4.0...v2.4.1) (2026-05-24)
 
 
