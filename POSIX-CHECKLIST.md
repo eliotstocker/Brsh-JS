@@ -116,10 +116,10 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `mkdir`
 - [x] `chmod`
 - [x] `cd` / `pwd`
-- [ ] `touch`
+- [x] `touch`
 - [ ] `find`
-- [ ] `ln` (symlinks)
-- [ ] `stat`
+- [x] `ln` (symlinks — real FS only; `-s` symlinks, hard links, `-f` force)
+- [x] `stat` (real FS: full lstat output; virtual FS: size, type, mode)
 
 ### Path Utilities
 - [ ] `basename`
@@ -144,15 +144,14 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 
 ## Priority Order
 
-1. **Pipes (`|`)** — unlocks most shell idioms; highest value
-2. **`break` / `continue`** — small change, very common in loops
-3. **`shift` / `unset` / `.` / `:`** — small special builtins, high frequency in scripts
-4. **`$@` / `$*` / `$0`** — needed for argument-forwarding patterns
-5. **`${var:-default}` parameter expansion forms** — very common in real scripts
-6. **`wc`, `head`, `tail`, `sort`, `uniq`, `tr`, `cut`** — most-used text utilities
-7. **`basename` / `dirname`** — common path helpers
-8. **`local`** — function-scoped variables
-9. **`date`, `sleep`, `touch`** — misc utilities
-10. **`set -u` enforcement** — nounset mode
-11. **Glob expansion** — needed for `ls *.txt` style usage
-12. **`sed` / `awk`** — complex; consider wasm or partial implementation
+1. **Input redirect (`<`)** — needed for many real scripts
+2. **`shift` / `unset` / `:`** — small special builtins, high frequency in scripts
+3. **`$@` / `$*` / `$0`** — needed for argument-forwarding patterns
+4. **`${var:-default}` parameter expansion forms** — very common in real scripts
+5. **`wc`, `head`, `tail`, `sort`, `uniq`, `tr`, `cut`** — most-used text utilities
+6. **`basename` / `dirname`** — common path helpers
+7. **`local`** — function-scoped variables
+8. **`date`, `sleep`** — misc utilities
+9. **`set -u` enforcement** — nounset mode
+10. **Glob expansion** — needed for `ls *.txt` style usage
+11. **`sed` / `awk`** — complex; consider wasm or partial implementation

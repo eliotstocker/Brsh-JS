@@ -4,7 +4,7 @@ import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const FileSystem = require('../lib/FileSystem.js');
-const { BinaryFile } = require('../lib/FileSystem.js');
+const { BinaryFile, SymlinkRef } = require('../lib/FileSystem.js');
 
 // Small 1x1 red PNG (base64)
 const RED_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
@@ -87,5 +87,88 @@ describe('FileSystem binary conversion', () => {
         const shell = await createShell({ filesystem: { img: RED_PNG_DATA_URI } });
         const { output } = await run(shell, 'cat /img');
         expect(output.join('')).toBe(RED_PNG_DATA_URI);
+    });
+});
+
+describe('FileSystem virtual symlinks', () => {
+    it('createSymlink stores a SymlinkRef', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        const raw = fs._getFileByAbsolutePath('/link');
+        expect(raw instanceof SymlinkRef).toBe(true);
+        expect(raw.target).toBe('/file');
+    });
+
+    it('isSymlink returns true for a symlink', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        expect(fs.isSymlink('/link')).toBe(true);
+        expect(fs.isSymlink('/file')).toBe(false);
+    });
+
+    it('readSymlink returns the target path', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        expect(fs.readSymlink('/link')).toBe('/file');
+    });
+
+    it('getFileByPath follows a symlink', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        expect(fs.getFileByPath('/link')).toBe('hello');
+    });
+
+    it('exists follows a symlink to a valid target', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        expect(fs.exists('/link')).toBe(true);
+    });
+
+    it('exists returns false for a broken symlink', () => {
+        const fs = new FileSystem('/', {});
+        fs.createSymlink('/missing', '/link');
+        expect(fs.exists('/link')).toBe(false);
+    });
+
+    it('stat returns isSymlink:true without following', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        fs.createSymlink('/file', '/link');
+        const s = fs.stat('/link');
+        expect(s.isSymlink).toBe(true);
+        expect(s.isFile).toBe(false);
+    });
+
+    it('stat follows symlinks for a regular file', () => {
+        const fs = new FileSystem('/', { file: 'hello' });
+        const s = fs.stat('/file');
+        expect(s.isFile).toBe(true);
+        expect(s.isSymlink).toBe(false);
+    });
+
+    it('follows a chain of symlinks', () => {
+        const fs = new FileSystem('/', { file: 'hi' });
+        fs.createSymlink('/file', '/a');
+        fs.createSymlink('/a', '/b');
+        expect(fs.getFileByPath('/b')).toBe('hi');
+    });
+
+    it('returns null for a symlink loop', () => {
+        const fs = new FileSystem('/', {});
+        fs.createSymlink('/b', '/a');
+        fs.createSymlink('/a', '/b');
+        expect(fs.getFileByPath('/a')).toBeNull();
+    });
+
+    it('symlink in a subdirectory resolves relative target', () => {
+        const fs = new FileSystem('/', { dir: { file: 'content' } });
+        fs.createSymlink('file', '/dir/link');     // relative target
+        expect(fs.getFileByPath('/dir/link')).toBe('content');
+    });
+
+    it('cat reads through a symlink via the shell', async () => {
+        const shell = await createShell({ filesystem: { real: 'symlinked content' } });
+        await run(shell, 'ln -s /real /lnk');
+        const { output } = await run(shell, 'cat /lnk');
+        expect(output.join('')).toBe('symlinked content');
     });
 });

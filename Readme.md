@@ -1,12 +1,12 @@
 # BRowserSHell (brsh)
 [![npm version](https://badge.fury.io/js/brsh.svg)](https://badge.fury.io/js/brsh)
 
-An extensible shell written in Javascript with an accompanying terminal emulator
+An extensible POSIX Like shell written in Javascript with an accompanying terminal emulator
 
 [Demo](http://eliotstocker.github.io/Brsh-JS/)
 
 ## What is it?
-A Unix-like Shell backend and Terminal Emulator that lets you embed a working terminal in a webapp, or run an interactive shell against the real filesystem in Node.
+A POSIX Like Shell backend and Terminal Emulator that lets you embed a working terminal in a webapp, or run an interactive shell against the real filesystem in Node.
 
 ## Why?
 No idea, you tell me
@@ -50,6 +50,9 @@ const term = new Terminal({
 The Terminal constructor options extend those of the Shell:
 
 ### Terminal Specific options
+
+All [Shell options](#shell-options) are also accepted and forwarded directly to the Shell instance.
+
 | option          | required | default       | description |
 | ------          | -------- | -------       | ----------- |
 | el              | Yes      |               | A HTMLElement to fill with the terminal emulator |
@@ -59,6 +62,7 @@ The Terminal constructor options extend those of the Shell:
 | animateSpeed    | No       | `1`           | Characters per browser frame for the `type` animation. Higher is faster |
 | onExit          | No       | `null`        | Function called when the shell session is destroyed. Without this, typing `exit` will leave the terminal in an ended state |
 | mobileInput     | No       | `click`       | One of `none` or `click`. Set to `click` to enable tap-to-focus (and show the on-screen keyboard on mobile) |
+| lineWrap        | No       | `false`       | When `true`, long lines wrap to the next line instead of overflowing |
 
 ### Shell options
 | option             | required | default     | description |
@@ -69,6 +73,7 @@ The Terminal constructor options extend those of the Shell:
 | filesystem         | No       | `{}`        | Object representing the virtual file system. Classes extending `Command` are treated as executables. Use [exportFileSystem](bin/Readme.md) to generate this from a real directory |
 | permissions        | No       | `{}`        | Map of virtual absolute paths to Unix mode bits (e.g. `{ '/bin/myscript.sh': 0o755 }`). Files without an entry default to `0o644`; function/class entries default to `0o755` |
 | cwd                | No       | `'/'`       | Starting working directory |
+| onFsChange         | No       | `null`      | Callback fired whenever the virtual filesystem changes (e.g. after a write or delete). Useful for persisting filesystem state |
 | useRealFilesystem  | No       | `false`     | When `true`, uses the real Node.js filesystem instead of the virtual one. Intended for CLI use |
 
 ## Running an interactive shell in Node
@@ -122,6 +127,7 @@ These are simplified versions of standard Unix commands.
 * `false`
 * `grep`
 * `ls`
+* `printf`
 * `test` / `[`
 * `true`
 
@@ -132,15 +138,19 @@ These are simplified versions of standard Unix commands.
 * `clear`
 * `cp`
 * `curl`
+* `. (dot)` / `source`
 * `exit`
 * `export`
 * `jsfunction`
+* `ln`
 * `mkdir`
 * `mv`
 * `pwd`
 * `read`
 * `rm`
-* `source`
+* `set`
+* `stat`
+* `touch`
 * `which`
 
 ## Adding new commands
