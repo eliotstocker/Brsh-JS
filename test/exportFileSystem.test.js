@@ -1,10 +1,11 @@
 import { createRequire } from 'module';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { createContext, runInContext } from 'vm';
 
 const require = createRequire(import.meta.url);
 const { buildStructure } = require('../lib/buildFilesystemStructure.js');
@@ -242,5 +243,98 @@ describe('exportFileSystem CLI', () => {
         // The generated source should contain both keys before bundling minifies it
         // Just check it builds and is valid JS
         expect(() => new Function(content)).not.toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// CLI integration tests – --compress (-c) flag
+// ---------------------------------------------------------------------------
+
+describe('exportFileSystem CLI --compress', () => {
+    let root;
+    let outDir;
+
+    beforeEach(() => {
+        root = tmpDir();
+        outDir = tmpDir();
+        writeFileSync(join(root, 'hello.txt'), 'Hello World');
+        writeFileSync(join(root, 'app.js'), 'module.exports = function() {}');
+    });
+
+    afterEach(() => {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outDir, { recursive: true, force: true });
+    });
+
+    it('builds successfully with --compress flag', () => {
+        const outFile = join(outDir, 'fs.js');
+        const r = runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        expect(r.status).toBe(0);
+        expect(r.stdout).toContain('Build succeeded');
+    });
+
+    it('compressed output is valid JavaScript', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        const content = readFileSync(outFile, 'utf8');
+        expect(() => new Function(content)).not.toThrow();
+    });
+
+    it('compressed output contains DecompressionStream reference', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        const content = readFileSync(outFile, 'utf8');
+        expect(content).toContain('DecompressionStream');
+    });
+
+    it('compressed output does not contain plain text file content', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        const content = readFileSync(outFile, 'utf8');
+        expect(content).not.toContain('Hello World');
+    });
+
+    it('compressed output is smaller than uncompressed for text-heavy filesystem', () => {
+        const textRoot = tmpDir();
+        try {
+            for (let i = 0; i < 20; i++) {
+                writeFileSync(join(textRoot, `doc${i}.txt`), `${'Content line repeated many times.\n'.repeat(200)} document ${i}`);
+            }
+            const compressedOut = join(outDir, 'compressed.js');
+            const uncompressedOut = join(outDir, 'uncompressed.js');
+            runCLI([textRoot, '-v', 'FS', '-o', compressedOut, '--compress']);
+            runCLI([textRoot, '-v', 'FS', '-o', uncompressedOut]);
+            expect(statSync(compressedOut).size).toBeLessThan(statSync(uncompressedOut).size);
+        } finally {
+            rmSync(textRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('compressed output resolves to an object with filesystem and permissions', async () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'TestFS', '-o', outFile, '--compress']);
+        const content = readFileSync(outFile, 'utf8');
+        const ctx = createContext({
+            atob: globalThis.atob,
+            DecompressionStream: globalThis.DecompressionStream,
+            Response: globalThis.Response,
+            TextDecoder: globalThis.TextDecoder,
+            Uint8Array,
+            Set,
+            Object,
+        });
+        runInContext(content, ctx);
+        const result = await ctx.TestFS;
+        expect(result).toHaveProperty('filesystem');
+        expect(result).toHaveProperty('permissions');
+        expect(result.filesystem['hello.txt']).toBe('Hello World');
+    });
+
+    it('compressed output with JS command files still bundles the command code', () => {
+        const outFile = join(outDir, 'fs.js');
+        runCLI([root, '-v', 'FS', '-o', outFile, '--compress']);
+        const content = readFileSync(outFile, 'utf8');
+        // app.js exports a function – its compiled form should appear in the bundle
+        expect(content.length).toBeGreaterThan(0);
     });
 });

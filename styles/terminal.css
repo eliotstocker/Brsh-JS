@@ -1,9 +1,39 @@
+:root {
+    --terminal-cursor-bg: #000;
+    --terminal-cursor-color: #fff;
+}
+
 .terminal__cursor {
     display: inline-block;
 }
 
+/* Full-screen rendering surface for interactive commands */
+.terminal__screen {
+    display: none;
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+    overflow: hidden;
+    flex: 1;
+    line-height: 1.15em;
+}
+
+/* Hidden span used to measure character cell dimensions */
+.terminal__char-measure {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: pre;
+    line-height: 1.15em;
+}
+
 .terminal__cursor.blink {
     animation: 1s blink 500ms step-end infinite;
+}
+
+.terminal__cursor.block {
+    background-color: var(--terminal-cursor-bg);
+    color: var(--terminal-cursor-color);
 }
 
 .terminal__line {
@@ -21,10 +51,12 @@
 
 @keyframes blink {
     from, to {
-        opacity: 0;
+        background-color: var(--terminal-cursor-bg);
+        color: var(--terminal-cursor-color);
     }
     50% {
-        opacity: 1;
+        background-color: transparent;
+        color: inherit;
     }
 }
 

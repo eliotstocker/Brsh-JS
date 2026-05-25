@@ -58,11 +58,28 @@ const shell = new Shell({
     hostname: require('os').hostname().split('.')[0]
 });
 
-shell.on('stdOut', line => process.stdout.write(line + '\n'));
-shell.on('stdErr', line => process.stderr.write(line + '\n'));
-
 let destroyed = false;
 let rl;
+let inInteractiveApp = false;
+
+// ── Terminal size reporting ───────────────────────────────────────────────────
+
+function reportSize() {
+    if (process.stdout.isTTY) {
+        shell.setTerminalSize(process.stdout.columns || 80, process.stdout.rows || 24);
+    }
+}
+
+process.stdout.on('resize', () => { if (inInteractiveApp) reportSize(); });
+
+shell.on('stdOut', line => {
+    if (inInteractiveApp) {
+        process.stdout.write(line);
+    } else {
+        process.stdout.write(line + '\n');
+    }
+});
+shell.on('stdErr', line => process.stderr.write(line + '\n'));
 
 shell.on('exit', code => {
     destroyed = true;
@@ -110,7 +127,14 @@ if (!isInteractive) {
 // ── Interactive mode ──────────────────────────────────────────────────────────
 
 shell.on('status', status => {
-    if (status === Shell.STATUS_READY) ask();
+    if (status !== Shell.STATUS_READY) return;
+    if (inInteractiveApp) {
+        inInteractiveApp = false;
+        process.stdin.removeListener('data', rawDataHandler);
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        rl.resume();
+    }
+    ask();
 });
 
 function prompt() {
@@ -136,6 +160,9 @@ rl = readline.createInterface({
     completer
 });
 
+// Report initial terminal size so COLUMNS/LINES are correct from the start
+reportSize();
+
 function ask() {
     rl.question(prompt(), line => {
         if (line === null) {
@@ -152,9 +179,52 @@ rl.on('close', () => { if (!destroyed) process.exit(0); });
 
 // Forward typed lines to commands waiting for input (e.g. `read`)
 rl.on('line', function(line) {
-    if (shell.runningCommand && shell.runningCommand.captureInput) {
+    if (shell.runningCommand && shell.runningCommand.captureInput && !inInteractiveApp) {
         for (const char of line) { shell.onInput(char); }
         shell.onInput('Enter');
     }
+});
+
+// ── Raw key input for interactive full-screen apps ────────────────────────────
+
+function parseRawKey(buf) {
+    const str = buf.toString('binary');
+    if (str.length === 1) {
+        const code = str.charCodeAt(0);
+        if (code === 0x0d || code === 0x0a) return 'Enter';
+        if (code === 0x7f || code === 0x08) return 'Backspace';
+        if (code === 0x09) return 'Tab';
+        if (code === 0x1b) return 'Escape';
+        if (code >= 0x01 && code <= 0x1a) return '^' + String.fromCharCode(code + 0x40);
+        return str;
+    }
+    if (str.startsWith('\x1b[') || str.startsWith('\x1bO')) {
+        const seq = str.slice(2);
+        const named = {
+            A: 'ArrowUp', B: 'ArrowDown', C: 'ArrowRight', D: 'ArrowLeft',
+            H: 'Home',    F: 'End',
+            '1~': 'Home', '3~': 'Delete', '4~': 'End',
+            '5~': 'PageUp', '6~': 'PageDown',
+            '7~': 'Home', '8~': 'End'
+        };
+        return named[seq] || null;
+    }
+    return null;
+}
+
+function rawDataHandler(buf) {
+    const key = parseRawKey(buf);
+    if (key !== null) shell.onInput(key);
+}
+
+shell.on('interactive', () => {
+    inInteractiveApp = true;
+    reportSize();
+    rl.pause();
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+    }
+    process.stdin.on('data', rawDataHandler);
 });
 

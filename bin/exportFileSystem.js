@@ -4,6 +4,7 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const cla = require('command-line-args');
 const tmp = require('tmp');
 const { polyfillNode } = require('esbuild-plugin-polyfill-node');
@@ -38,6 +39,11 @@ try {
             name: 'hyperlinks',
             alias: 'h',
             type: Boolean
+        },
+        {
+            name: 'compress',
+            alias: 'c',
+            type: Boolean
         }
     ]);
 } catch(e) {
@@ -70,11 +76,57 @@ try {
     process.exit(1);
 }
 const { filesystem, permissions } = struct;
-const fsJson = JSON.stringify(filesystem, null, options.pretty ? 2 : null);
-const permJson = JSON.stringify(permissions, null, options.pretty ? 2 : null);
-const fsJS = fsJson.replace(/"(require\('.*?'\))"/gm, '$1');
 
-let JS = `module.exports = { filesystem: ${fsJS}, permissions: ${permJson} }`;
+/**
+ * Recursively splits a filesystem tree into two trees:
+ *   code  – entries whose value is a require() placeholder (bundled by esbuild)
+ *   data  – entries whose value is a plain string/null (text / binary content)
+ */
+function splitFilesystem(node) {
+    const code = {};
+    const data = {};
+    for (const [key, value] of Object.entries(node)) {
+        if (value !== null && typeof value === 'object') {
+            const [subCode, subData] = splitFilesystem(value);
+            if (Object.keys(subCode).length > 0) code[key] = subCode;
+            if (Object.keys(subData).length > 0) data[key] = subData;
+        } else if (typeof value === 'string' && value.startsWith("require('")) {
+            code[key] = value;
+        } else {
+            data[key] = value;
+        }
+    }
+    return [code, data];
+}
+
+let JS;
+
+if (options.compress) {
+    const [codeFilesystem, dataFilesystem] = splitFilesystem(filesystem);
+
+    // Compress the data portion (text/binary file contents + permissions)
+    const dataPayload = JSON.stringify({ filesystem: dataFilesystem, permissions });
+    const compressed = zlib.gzipSync(Buffer.from(dataPayload, 'utf8'));
+    const b64 = compressed.toString('base64');
+
+    // Serialise only the code portion (require() entries) with substitution
+    const codeFsJSON = JSON.stringify(codeFilesystem);
+    const codeFsJS = codeFsJSON.replace(/"(require\('.*?'\))"/gm, '$1');
+
+    JS = `
+const __c="${b64}";
+function __bd(s){const b=atob(s);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+async function __decompress(b64){const ds=new DecompressionStream("gzip");const w=ds.writable.getWriter();w.write(__bd(b64));w.close();const buf=await new Response(ds.readable).arrayBuffer();return JSON.parse(new TextDecoder().decode(buf));}
+function __merge(a,b){const r={};const ks=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of ks){const av=a&&a[k],bv=b&&b[k];r[k]=(av!==null&&typeof av==="object"&&bv!==null&&typeof bv==="object")?__merge(av,bv):(av!==undefined?av:bv);}return r;}
+const __codeFs=${codeFsJS};
+module.exports=__decompress(__c).then(function(__d){return{filesystem:__merge(__codeFs,__d.filesystem),permissions:__d.permissions};});
+`;
+} else {
+    const fsJson = JSON.stringify(filesystem, null, options.pretty ? 2 : null);
+    const permJson = JSON.stringify(permissions, null, options.pretty ? 2 : null);
+    const fsJS = fsJson.replace(/"(require\('.*?'\))"/gm, '$1');
+    JS = `module.exports = { filesystem: ${fsJS}, permissions: ${permJson} }`;
+}
 
 const tf = tmp.fileSync({ postfix: '.tmp.js' });
 fs.writeFileSync(tf.name, JS);

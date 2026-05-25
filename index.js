@@ -5,6 +5,7 @@ const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
 const WasmCommand = require('./lib/WasmCommand');
 const Command = require('./lib/Command');
+const InteractiveCommand = require('./lib/InteractiveCommand');
 
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
@@ -77,6 +78,17 @@ class Shell extends EventEmitter {
             this.runningCommand.onInput(char);
             return true;
         }
+    }
+
+    setTerminalSize(cols, rows) {
+        this._terminalSize = { cols, rows };
+        this.context.setVar('COLUMNS', String(cols));
+        this.context.setVar('LINES', String(rows));
+        this.emit('resize', { cols, rows });
+    }
+
+    get terminalSize() {
+        return this._terminalSize || { cols: 80, rows: 24 };
     }
 
     _loadDefaultCommands() {
@@ -232,6 +244,9 @@ class Shell extends EventEmitter {
             this.runningCommand.on('flush', lines => {
                 this._emitOutput(lines);
             });
+        }
+        if (instance.interactive) {
+            this.emit('interactive');
         }
 
         return instance.runCommand().then(result => {
@@ -611,6 +626,7 @@ Shell.STATUS_WORKING = 'WORKING';
 Shell.STATUS_DESTROYED = 'DESTROYED';
 
 Shell.Command = Command;
+Shell.InteractiveCommand = InteractiveCommand;
 Shell.FS = BaseFileSystem;
 
 global.shell = Shell;
