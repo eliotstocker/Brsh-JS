@@ -1,3 +1,10 @@
+## [2.5.4](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.3...v2.5.4) (2026-05-25)
+
+
+### Bug Fixes
+
+* context passing correctly ([b82a10b](https://github.com/eliotstocker/Brsh-JS/commit/b82a10b1a4334ae551028c1a25c51636fcbea2ef))
+
 ## [2.5.3](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.2...v2.5.3) (2026-05-25)
 
 
