@@ -1,8 +1,3 @@
-:root {
-    --terminal-cursor-bg: #000;
-    --terminal-cursor-color: #fff;
-}
-
 .terminal__cursor {
     display: inline-block;
 }
@@ -32,8 +27,8 @@
 }
 
 .terminal__cursor.block {
-    background-color: var(--terminal-cursor-bg);
-    color: var(--terminal-cursor-color);
+    background-color: currentColor;
+    color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
 }
 
 .terminal__line {
@@ -51,12 +46,12 @@
 
 @keyframes blink {
     from, to {
-        background-color: var(--terminal-cursor-bg);
-        color: var(--terminal-cursor-color);
+        background-color: currentColor;
+        -webkit-text-fill-color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
     }
     50% {
         background-color: transparent;
-        color: inherit;
+        -webkit-text-fill-color: unset;
     }
 }
 
