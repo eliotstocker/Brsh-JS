@@ -1,3 +1,10 @@
+## [2.5.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.0...v2.5.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* store binary data at runtime as uint8array rather than base64 string ([f2edfec](https://github.com/eliotstocker/Brsh-JS/commit/f2edfec18cb890846e152f71f1e033ee6f9c80f1))
+
 # [2.5.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.4.1...v2.5.0) (2026-05-25)
 
 
