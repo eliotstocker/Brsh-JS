@@ -1,3 +1,10 @@
+## [2.5.6](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.5...v2.5.6) (2026-11-04)
+
+
+### Bug Fixes
+
+* **security:** pin Node.js to 24.22.1 to address CVE-2026-111497 ([#22](https://github.com/eliotstocker/Brsh-JS/issues/22)) ([593cce5](https://github.com/eliotstocker/Brsh-JS/commit/593cce54d8932d19ccab02c6dcd3998039f6903f))
+
 ## [2.5.5](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.4...v2.5.5) (2026-05-25)
 
 
