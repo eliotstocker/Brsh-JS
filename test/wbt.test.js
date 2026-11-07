@@ -879,13 +879,25 @@ describe('WBT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
         expect(runRes.output.join('\n')).toContain('< Hello Generic WASM >');
     });
 
-    it('installs and runs a custom .wasm binary from a URL (`wbt install <name> <url>`)', async () => {
+    it('installs and runs a custom .wasm binary from a URL (`wbt install <name> <url>`) and supports mixing multiple packages with `<name> <url>` pairs', async () => {
+        // 1. Single `<name> <url>`
         const installRes = await run(shell, 'wbt install mywasm https://example.com/hello.wasm');
         expect(installRes.exitCode).toBe(0);
         expect(installRes.output.join('\n')).toContain('Setting up mywasm');
 
         const execRes = await run(shell, 'mywasm');
         expect(execRes.exitCode).toBe(0);
+
+        // 2. Mixed multiple registry packages AND `<name> <url>` in one command
+        const mixedRes = await run(shell, 'wbt install jq otherwasm https://example.com/hello.wasm python3');
+        expect(mixedRes.exitCode).toBe(0);
+        const mixedOut = mixedRes.output.join('\n');
+        expect(mixedOut).toContain('Setting up jq');
+        expect(mixedOut).toContain('Setting up otherwasm');
+        expect(mixedOut).toContain('Setting up python3');
+
+        expect((await run(shell, 'otherwasm')).exitCode).toBe(0);
+        expect((await run(shell, 'python3 -c "2 + 2"')).output).toContain('4');
     });
 
     it('supports `wbt run <pkg> [args...]` without permanently installing the binary', async () => {
