@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
+const Shell = require('../index.js');
 const FileSystem = require('../lib/FileSystem.js');
 const { BinaryFile, SymlinkRef } = require('../lib/FileSystem.js');
 
@@ -268,6 +269,88 @@ describe('BRFS Indexed Binary Container & Client-Side Persistence', () => {
 
         const decoded = deserializeBinaryFilesystem(latest);
         expect(decoded.filesystem.home['auto.txt']).toBe('hello auto-save');
+    });
+
+    it('accepts a URL string directly in new Shell({ filesystem: "/fs.brfs" }) without a JS loader', async () => {
+        const containerBytes = serializeBinaryFilesystem(
+            {
+                home: {
+                    '.profile': '#!/sh.js\nexport FROM_PROFILE="loaded"',
+                    'greeting.txt': 'hello from url brfs'
+                }
+            },
+            {
+                '/home/greeting.txt': 0o640
+            }
+        );
+
+        const origFetch = global.fetch;
+        global.fetch = async (url) => {
+            if (url === 'https://example.test/fs.brfs' || url === '/fs.brfs') {
+                return {
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () => containerBytes.buffer.slice(
+                        containerBytes.byteOffset,
+                        containerBytes.byteOffset + containerBytes.byteLength
+                    )
+                };
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        };
+
+        try {
+            class ExtraCmd extends Shell.Command {
+                static get name() { return 'extracmd'; }
+                get name() { return 'extracmd'; }
+                run() {
+                    this.stdOut = 'extra command works';
+                }
+            }
+
+            const shell = new Shell({
+                filesystem: '/fs.brfs',
+                cwd: '/home',
+                profile: '/home/.profile'
+            });
+            // Register a command synchronously while /fs.brfs is still being fetched
+            shell.context.setCommand(ExtraCmd);
+
+            // Commands called immediately automatically wait for /fs.brfs to finish mounting
+            const catRes = await run(shell, 'cat greeting.txt');
+            expect(catRes.exitCode).toBe(0);
+            expect(catRes.output.join('')).toBe('hello from url brfs');
+
+            const envRes = await run(shell, 'echo $FROM_PROFILE');
+            expect(envRes.output.join('')).toBe('loaded');
+
+            const cmdRes = await run(shell, 'extracmd');
+            expect(cmdRes.exitCode).toBe(0);
+            expect(cmdRes.output.join('')).toBe('extra command works');
+
+            expect(shell.context.fs.getMode('/home/greeting.txt')).toBe(0o640);
+        } finally {
+            global.fetch = origFetch;
+        }
+    });
+
+    it('accepts a Promise (such as Shell.Storage.loadOrFetch) or gzipped .brfs bytes directly', async () => {
+        const zlib = require('zlib');
+        const containerBytes = serializeBinaryFilesystem(
+            { data: { 'msg.txt': 'compressed brfs works' } },
+            { '/data/msg.txt': 0o600 }
+        );
+        const gzippedBytes = new Uint8Array(zlib.gzipSync(Buffer.from(containerBytes)));
+
+        const shell = new Shell({
+            filesystem: FilesystemStorage.loadOrFetch('non-existent-key', Promise.resolve(gzippedBytes)),
+            cwd: '/data'
+        });
+
+        const res = await run(shell, 'cat msg.txt');
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('')).toBe('compressed brfs works');
+        expect(shell.context.fs.getMode('/data/msg.txt')).toBe(0o600);
     });
 });
 

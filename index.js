@@ -12,7 +12,14 @@ const localCommands = require('./lib/local');
 const events = require('events');
 const BaseFileSystem = require('./lib/BaseFileSystem');
 
+<<<<<<< HEAD
 const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
+=======
+const BinaryContainer = require('./lib/BinaryContainer');
+const { isAsyncFilesystemSource, resolveFilesystemSource } = BinaryContainer;
+
+const variableRegex = /\${?([\w\d]+)}?/g;
+>>>>>>> a7cdd96 (feat: support passing .brfs URLs, Promises, and gzipped containers directly to Shell/Terminal)
 
 
 const EventEmitter = events.EventEmitter || events.default || events;
@@ -61,17 +68,6 @@ class Shell extends EventEmitter {
                 this.context.setVar('-', initialFlags);
             }
         }
-        if (useRealFilesystem) {
-            this.context.setNodeFilesystem(cwd);
-        } else {
-            this.context.setFilesystem(filesystem, permissions);
-        }
-        this.context.setCwd(cwd);
-
-        const pathDirExisted = useRealFilesystem || this.context.fs.exists(this.context.getVar('PATH'));
-        this._loadDefaultCommands();
-        this._loadBuiltinCommands(pathDirExisted);
-
         this._lastCode = 0;
         this._subshell = subshell;
         this._useRealFilesystem = useRealFilesystem;
@@ -79,13 +75,106 @@ class Shell extends EventEmitter {
         this._motd = motd;
         this._initialCommand = command || null;
         this._suppressMotd = Boolean(command);
+        this._loadingFs = null;
+        this._queuedWhileLoading = false;
 
-        if (!subshell) {
-            this._initializing = true;
-            setTimeout(() => this._init(), 0);
+        if (useRealFilesystem) {
+            this.context.setNodeFilesystem(cwd);
+            this.context.setCwd(cwd);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(true);
+            this.ready = Promise.resolve(this);
+            if (!subshell) {
+                this._initializing = true;
+                setTimeout(() => this._init(), 0);
+            } else {
+                this._initializing = false;
+            }
+        } else if (isAsyncFilesystemSource(filesystem) || (filesystem && typeof filesystem === 'object' && isAsyncFilesystemSource(filesystem.filesystem))) {
+            // Initialize a temporary empty filesystem so synchronous calls like `shell.context.setCommand(Wbt)` work immediately
+            this.context.setFilesystem({}, permissions);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(false);
+            this._initializing = !subshell;
+            this._loadingFs = this._initAsyncFilesystem(filesystem, permissions, cwd, profile);
+            this.ready = this._loadingFs;
+        } else {
+            this.context.setFilesystem(filesystem, permissions);
+            this.context.setCwd(cwd);
+
+            const pathDirExisted = this.context.fs.exists(this.context.getVar('PATH'));
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(pathDirExisted);
+            this.ready = Promise.resolve(this);
+
+            if (!subshell) {
+                this._initializing = true;
+                setTimeout(() => this._init(), 0);
+            } else {
+                this._initializing = false;
+            }
+        }
+    }
+
+    async _initAsyncFilesystem(filesystemSource, permissions, cwd) {
+        const binPath = this.context.getVar('PATH') || '/bin';
+        const getBinSnapshot = () => {
+            try {
+                const raw = this.context.fs.getRaw();
+                const parts = binPath.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+                let dir = raw;
+                for (const p of parts) {
+                    dir = dir && dir[p];
+                }
+                return dir && typeof dir === 'object' ? Object.assign({}, dir) : {};
+            } catch (_) {
+                return {};
+            }
+        };
+
+        const defaultBinSnapshot = getBinSnapshot();
+        try {
+            const resolved = await resolveFilesystemSource(filesystemSource, permissions);
+            const postBinSnapshot = getBinSnapshot();
+
+            // Preserve any custom commands registered via `shell.context.setCommand(...)` while the async load was in flight
+            const customCommands = [];
+            for (const [k, v] of Object.entries(postBinSnapshot)) {
+                if (defaultBinSnapshot[k] !== v && typeof v === 'function') {
+                    customCommands.push(v);
+                }
+            }
+
+            // Temporarily suppress onFsChange during initial mount
+            const savedOnChange = this.context._onFsChange;
+            this.context._onFsChange = null;
+            this.context.setFilesystem(resolved.filesystem, resolved.permissions);
+            const pathDirExisted = this.context.fs.exists(binPath);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(pathDirExisted);
+            for (const cmd of customCommands) {
+                this.context.setCommand(cmd);
+            }
+            this.context.setCwd(cwd);
+            this.context._onFsChange = savedOnChange;
+            if (savedOnChange && this.context.fs) {
+                this.context.fs._onChange = () => savedOnChange(this.context.fs.getRaw(), this.context.fs.getRawPermissions());
+            }
+        } catch (err) {
+            this.emit('stdErr', err.message || String(err));
+        } finally {
+            this._loadingFs = null;
+        }
+
+        if (!this._subshell) {
+            await this._init();
         } else {
             this._initializing = false;
+            if (!this._queuedWhileLoading && !this.destroyed) {
+                this.emit('status', Shell.STATUS_READY);
+            }
         }
+        return this;
     }
 
     get path() {
@@ -163,7 +252,7 @@ class Shell extends EventEmitter {
             }
         } finally {
             this._initializing = false;
-            if (!this.destroyed) {
+            if (!this._queuedWhileLoading && !this.destroyed) {
                 this.emit('status', Shell.STATUS_READY);
             }
         }
@@ -258,6 +347,11 @@ class Shell extends EventEmitter {
         const groups = this._groupPipes(segments);
         let shouldRun = true;
 
+        if (this._loadingFs && events) {
+            this._queuedWhileLoading = true;
+        }
+        const initialPromise = this._loadingFs ? Promise.resolve(this._loadingFs) : Promise.resolve();
+
         const promise = groups.reduce((chain, { commands, op }) => {
             return chain.then(() => {
                 if (!shouldRun) {
@@ -272,7 +366,7 @@ class Shell extends EventEmitter {
                     else if (op === ';') shouldRun = true;
                 });
             });
-        }, Promise.resolve());
+        }, initialPromise);
 
         if(events) {
             return promise.then(() => {

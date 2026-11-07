@@ -300,7 +300,13 @@ exportFileSystem ./filesystem -o ./fs.js -v fs --binary
 ### Mounting & Snapshot Serialization
 
 ```js
-// Pass a .brfs ArrayBuffer / Uint8Array directly to Shell or Terminal:
+// Pass a .brfs URL directly to Terminal or Shell (no JS loader needed!):
+const term = new Terminal({
+    el: document.body,
+    filesystem: '/fs.brfs'
+});
+
+// Or pass a pre-fetched ArrayBuffer / Uint8Array (raw or gzip-compressed):
 const bytes = new Uint8Array(await (await fetch('/fs.brfs')).arrayBuffer());
 const shell = new Shell({ filesystem: bytes });
 
@@ -310,23 +316,23 @@ const snapshot = shell.context.fs.toBinaryContainer();
 
 ### Client-Side Persistence (IndexedDB)
 
-Use `Shell.Storage` (`FilesystemStorage`) to persist user changes across page reloads in IndexedDB (with automatic `localStorage` fallback):
+Use `Shell.Storage` (`FilesystemStorage`) to persist user changes across page reloads in IndexedDB:
 
 ```js
+const Terminal = require('brsh/terminal');
 const Shell = require('brsh');
 
-// Load previously saved filesystem state (or fall back to your initial .brfs / object filesystem)
-const savedFs = await Shell.Storage.load('my-app');
-
-const shell = new Shell({
-    filesystem: savedFs || initialFilesystem,
-    // Automatically persist changes (debounced) to IndexedDB whenever files or permissions change
-    onFsChange: Shell.Storage.createAutoSave('my-app', 300)
+const term = new Terminal({
+    el: document.body,
+    // Loads saved snapshot from IndexedDB if present, otherwise fetches '/fs.brfs'
+    filesystem: Shell.Storage.loadOrFetch('my-app', '/fs.brfs'),
+    // Automatically persists binary container to IndexedDB whenever files or permissions change
+    onFsChange: Shell.Storage.createAutoSave('my-app')
 });
 
-// Or manually save/clear at any time:
-await Shell.Storage.save(shell, 'my-app');
-await Shell.Storage.clear('my-app');
+// Or manually save/load at any time:
+await Shell.Storage.save(term.cli, 'my-app');
+const savedFs = await Shell.Storage.load('my-app');
 ```
 
 ## More Examples
