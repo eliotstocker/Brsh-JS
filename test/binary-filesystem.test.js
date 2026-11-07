@@ -352,5 +352,71 @@ describe('BRFS Indexed Binary Container & Client-Side Persistence', () => {
         expect(res.output.join('')).toBe('compressed brfs works');
         expect(shell.context.fs.getMode('/data/msg.txt')).toBe(0o600);
     });
+
+    it('persists and restores from IndexedDB via FilesystemStorage.save / load / loadOrFetch', async () => {
+        // Minimal in-memory IndexedDB mock
+        const stores = new Map();
+        const origIdb = global.indexedDB;
+        global.indexedDB = {
+            open(_dbName, _version) {
+                const req = {};
+                setTimeout(() => {
+                    if (!stores.has('snapshots')) {
+                        stores.set('snapshots', new Map());
+                        if (req.onupgradeneeded) {
+                            req.result = { createObjectStore: (name) => stores.set(name, new Map()) };
+                            req.onupgradeneeded();
+                        }
+                    }
+                    req.result = {
+                        createObjectStore: (name) => stores.set(name, new Map()),
+                        transaction: (storeName) => {
+                            const tx = {
+                                objectStore: () => ({
+                                    put: (val, key) => {
+                                        stores.get(storeName).set(key, val);
+                                        setTimeout(() => tx.oncomplete && tx.oncomplete(), 0);
+                                    },
+                                    get: (key) => {
+                                        const getReq = {};
+                                        setTimeout(() => {
+                                            getReq.result = stores.get(storeName).get(key);
+                                            if (getReq.onsuccess) getReq.onsuccess();
+                                        }, 0);
+                                        return getReq;
+                                    }
+                                }),
+                                close: () => {}
+                            };
+                            return tx;
+                        },
+                        close: () => {}
+                    };
+                    if (req.onsuccess) req.onsuccess();
+                }, 0);
+                return req;
+            }
+        };
+
+        try {
+            const shell1 = await createShell({
+                filesystem: { home: { 'idb.txt': 'saved in indexeddb' } },
+                permissions: { '/home/idb.txt': 0o640 }
+            });
+            await FilesystemStorage.save(shell1, 'idb-test-key');
+
+            // Verify loadOrFetch prefers the IndexedDB snapshot over fallback
+            const shell2 = new Shell({
+                filesystem: FilesystemStorage.loadOrFetch('idb-test-key', { home: { 'idb.txt': 'fallback' } }),
+                cwd: '/home'
+            });
+            const res = await run(shell2, 'cat idb.txt');
+            expect(res.exitCode).toBe(0);
+            expect(res.output.join('')).toBe('saved in indexeddb');
+            expect(shell2.context.fs.getMode('/home/idb.txt')).toBe(0o640);
+        } finally {
+            global.indexedDB = origIdb;
+        }
+    });
 });
 

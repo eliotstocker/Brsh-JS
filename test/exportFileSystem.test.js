@@ -408,5 +408,20 @@ describe('exportFileSystem CLI --binary (.brfs indexed binary container)', () =>
         const raw = new Uint8Array(readFileSync(join(outDir, 'fs.brfs')));
         expect(isBinaryContainer(raw)).toBe(true);
     });
+
+    it('boots a Shell directly from an exported .brfs file path and executes scripts inside it', async () => {
+        const Shell = require('../index.js');
+        const outFile = join(outDir, 'fs.brfs');
+        const r = runCLI([root, '-o', outFile]);
+        expect(r.status).toBe(0);
+
+        const shell = new Shell({ filesystem: outFile });
+        const output = [];
+        shell.on('stdOut', line => output.push(line));
+        await shell.onCommand('run.sh && cat /hello.txt');
+
+        expect(output).toContain('hi');
+        expect(output).toContain('Hello Binary Container');
+    });
 });
 
