@@ -327,6 +327,15 @@ function createMockLua() {
 function createMockJq() {
     return {
         async main(args, io) {
+            if (args.includes('--help') || args.includes('-h')) {
+                io.stdout('jq - commandline JSON processor [version 1.7.1]');
+                io.stdout('Usage: jq [options] <jq filter> [file...]');
+                io.stdout('  -c, --compact-output  compact instead of pretty-printed output;');
+                io.stdout('  -n, --null-input      use `null` as the single input value;');
+                io.stdout('  -r, --raw-output      output raw strings, not JSON texts;');
+                io.stdout('  -s, --slurp           read (slurp) all inputs into an array;');
+                return 0;
+            }
             const positional = args.filter(a => !a.startsWith('-'));
             const filter = positional.shift() || '.';
             const input = positional.length > 0 ? io.readFile(positional[0]) : io.stdin;
@@ -986,7 +995,7 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
         expect(helpText).toContain('-V, --version');
     });
 
-    it('provides a standardized --help format across registry, REPL, daemon, npm:<pkg>, and custom URL WASM binaries', async () => {
+    it('provides a standardized --help format across registry, REPL, daemon, npm:<pkg>, and custom URL WASM binaries and extracts CLI options at runtime', async () => {
         const shell = await createShell({ filesystem: { home: {} } });
         shell.context.setCommand(createTestWbt());
         await run(shell, 'wbt install jq python3 pglite npm:cowsay-wasm');
@@ -1002,6 +1011,58 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
             expect(text).toContain('-h, --help');
             expect(text).toContain('-V, --version');
         }
+
+        // Verify `jq --help` extracts its CLI options at runtime from the WASM module's `--help` output
+        const jqHelp = (await run(shell, 'jq --help')).output.join('\n');
+        expect(jqHelp).toContain('Usage: jq [options] <jq filter> [file...]');
+        expect(jqHelp).toContain('-r, --raw-output');
+        expect(jqHelp).toContain('-c, --compact-output');
+
+        // Verify `mywasm --help` introspects the compiled .wasm binary exports at runtime
+        const mywasmHelp = (await run(shell, 'mywasm --help')).output.join('\n');
+        expect(mywasmHelp).toContain('WASM Exports: _start');
+    });
+
+    it('introspects embedded Usage and CLI flags from a .wasm binary data section at runtime when the binary does not print help', async () => {
+        // Append a custom section / data payload containing embedded C strings (`Usage: ...` and `--flag` lines)
+        const embeddedStrings = new TextEncoder().encode(
+            '\0Usage: customtool [-v] <input>\n' +
+            '  -f, --format <fmt>  Output format\n' +
+            '  --strict            Strict mode\0'
+        );
+        // Custom section (id 0) with name "rodata" + embedded strings (payloadLen < 128 so 1-byte LEB128)
+        const secName = new TextEncoder().encode('rodata');
+        const payloadLen = 1 + secName.length + embeddedStrings.length;
+        const wasmWithData = new Uint8Array(MINIMAL_WASM_BYTES.length + 3 + secName.length + embeddedStrings.length);
+        wasmWithData.set(MINIMAL_WASM_BYTES, 0);
+        let offset = MINIMAL_WASM_BYTES.length;
+        wasmWithData[offset++] = 0x00; // custom section id
+        wasmWithData[offset++] = payloadLen;
+        wasmWithData[offset++] = secName.length;
+        wasmWithData.set(secName, offset);
+        offset += secName.length;
+        wasmWithData.set(embeddedStrings, offset);
+
+        const b64 = Buffer.from(wasmWithData).toString('base64');
+        const shell = await createShell({
+            filesystem: {
+                bin: {
+                    customtool: `data:application/wasm;base64,${b64}`
+                }
+            },
+            permissions: {
+                '/bin/customtool': 0o755
+            }
+        });
+
+        const helpRes = await run(shell, 'customtool --help');
+        expect(helpRes.exitCode).toBe(0);
+        const helpText = helpRes.output.join('\n');
+        expect(helpText).toContain('Usage: customtool [-v] <input>');
+        expect(helpText).toContain('-f, --format <fmt>  Output format');
+        expect(helpText).toContain('--strict            Strict mode');
+        expect(helpText).toContain('WASM Exports: _start');
     });
 });
+
 
