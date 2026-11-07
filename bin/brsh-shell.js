@@ -11,8 +11,26 @@
 //   brsh-shell -i -c "cmd"            force interactive after running -c
 
 const Shell = require('../index.js');
+const Wbt = require('../lib/wbt');
+const Pico = require('../demo/pico');
+const { buildStructure } = require('../lib/buildFilesystemStructure');
 const readline = require('readline');
 const nodePath = require('path');
+
+function resolveRequireNodes(node) {
+    if (!node || typeof node !== 'object') return node;
+    for (const [k, v] of Object.entries(node)) {
+        if (typeof v === 'string') {
+            const m = v.match(/^require\('(.*)'\)$/);
+            if (m) {
+                try { node[k] = require(m[1]); } catch { /* ignore */ }
+            }
+        } else if (v && typeof v === 'object') {
+            resolveRequireNodes(v);
+        }
+    }
+    return node;
+}
 
 // ── CLI argument parsing ──────────────────────────────────────────────────────
 
@@ -22,12 +40,17 @@ let scriptFile = null;     // positional script path
 let scriptArgs = [];       // args after the script filename
 const shellFlags = [];     // single-char flags to activate via `set`
 let forceInteractive = false;
+let demoMode = false;
 
 for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') {
         if (scriptFile) scriptArgs = argv.slice(i + 1);
         break;
+    }
+    if (arg === '--demo') {
+        demoMode = true;
+        continue;
     }
     if (arg === '-c') {
         commandString = argv[++i] !== undefined ? argv[i] : '';
@@ -52,11 +75,29 @@ const isInteractive = forceInteractive || (commandString === null && scriptFile 
 
 // ── Shell setup ───────────────────────────────────────────────────────────────
 
-const shell = new Shell({
-    useRealFilesystem: true,
-    cwd: process.cwd(),
-    hostname: require('os').hostname().split('.')[0]
-});
+let shellOptions;
+if (demoMode) {
+    const demoDir = nodePath.resolve(__dirname, '../demo/filesystem');
+    const { filesystem, permissions } = buildStructure(demoDir);
+    resolveRequireNodes(filesystem);
+    shellOptions = {
+        filesystem,
+        permissions,
+        profile: '/root/.profile',
+        cwd: '/root',
+        hostname: 'brsh'
+    };
+} else {
+    shellOptions = {
+        useRealFilesystem: true,
+        cwd: process.cwd(),
+        hostname: require('os').hostname().split('.')[0]
+    };
+}
+
+const shell = new Shell(shellOptions);
+shell.context.setCommand(Wbt);
+shell.context.setCommand(Pico);
 
 let destroyed = false;
 let rl;
@@ -118,9 +159,13 @@ async function runNonInteractive() {
 }
 
 if (!isInteractive) {
-    shell.once('status', status => {
-        if (status === Shell.STATUS_READY) runNonInteractive();
-    });
+    const onReady = status => {
+        if (status === Shell.STATUS_READY) {
+            shell.removeListener('status', onReady);
+            runNonInteractive();
+        }
+    };
+    shell.on('status', onReady);
     return;
 }
 

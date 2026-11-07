@@ -34,6 +34,7 @@
     "build:terminal": "vite build --config vite.config.terminal.js",
     "build:wbt": "vite build --config vite.config.wbt.js",
     "shell": "node bin/brsh-shell.js",
+    "demo:shell": "node bin/brsh-shell.js --demo",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"
