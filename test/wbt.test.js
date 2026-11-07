@@ -30,120 +30,97 @@ const EVAL_42_WASM_BYTES = new Uint8Array([
 ]);
 
 /**
- * In-memory mock implementation of sql.js so sqlite3 WASM tests run deterministically offline.
+ * Standard CLI/Emscripten mock for sqlite3 so tests exercise the pure generic runtime + ReplCommand extension.
  */
 function createMockSqlJs() {
-    class MockDatabase {
-        constructor(bytes) {
-            this._tables = {};
-            if (bytes && bytes.length > 0) {
-                try {
-                    const text = new TextDecoder().decode(bytes);
-                    const parsed = JSON.parse(text);
-                    if (parsed && parsed._tables) {
-                        this._tables = parsed._tables;
-                    }
-                } catch {
-                    // ignore invalid bytes
+    const { formatTable, formatPipeList, formatCsv } = require('../lib/wbt/utils.js');
+    return {
+        async main(args, io) {
+            let mode = 'list';
+            let dbPath = ':memory:';
+            let sql = null;
+            const positional = [];
+
+            for (let i = 0; i < args.length; i++) {
+                const a = args[i];
+                if (a === '-table' || a === '--table' || a === '-box') mode = 'table';
+                else if (a === '-csv' || a === '--csv') mode = 'csv';
+                else if (a === '-cmd' && i + 1 < args.length) sql = args[++i];
+                else if (!a.startsWith('-')) positional.push(a);
+            }
+
+            if (positional.length === 1) {
+                if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|\.)\b/i.test(positional[0])) {
+                    sql = positional[0];
+                } else {
+                    dbPath = positional[0];
+                }
+            } else if (positional.length >= 2) {
+                dbPath = positional[0];
+                sql = positional.slice(1).join(' ');
+            }
+            if (!sql && io.stdin && io.stdin.trim()) {
+                sql = io.stdin.trim();
+            }
+            if (!sql) return 0;
+
+            let state = { _tables: {} };
+            if (dbPath !== ':memory:') {
+                const existing = io.readFile(dbPath);
+                if (existing) {
+                    try { state = JSON.parse(existing); } catch { /* ignore */ }
                 }
             }
-        }
 
-        exec(sql) {
-            const results = [];
-            const statements = sql
-                .split(';')
-                .map(s => s.trim())
-                .filter(Boolean);
-
-            for (const stmt of statements) {
-                if (/^SELECT\s+name\s+FROM\s+sqlite_master/i.test(stmt)) {
-                    const names = Object.keys(this._tables).sort().map(n => [n]);
-                    if (names.length > 0) {
-                        results.push({ columns: ['name'], values: names });
-                    }
+            for (const rawStmt of sql.split(';').map(s => s.trim()).filter(Boolean)) {
+                if (rawStmt === '.tables') {
+                    io.stdout(Object.keys(state._tables).sort().join('  '));
                     continue;
                 }
-                if (/^SELECT\s+sql\s+FROM\s+sqlite_master/i.test(stmt)) {
-                    const sqls = Object.values(this._tables).map(t => [t.createSql]);
-                    if (sqls.length > 0) {
-                        results.push({ columns: ['sql'], values: sqls });
-                    }
-                    continue;
-                }
-
-                const createMatch = stmt.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.+)\)/i);
+                const createMatch = rawStmt.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.+)\)/i);
                 if (createMatch) {
                     const tbl = createMatch[1];
                     const cols = createMatch[2].split(',').map(c => c.trim().split(/\s+/)[0]);
-                    this._tables[tbl] = { columns: cols, rows: [], createSql: stmt };
+                    state._tables[tbl] = { columns: cols, rows: [] };
                     continue;
                 }
-
-                const insertMatch = stmt.match(/^INSERT\s+INTO\s+(\w+)(?:\s*\(([^)]+)\))?\s+VALUES\s*\((.+)\)/i);
+                const insertMatch = rawStmt.match(/^INSERT\s+INTO\s+(\w+)(?:\s*\(([^)]+)\))?\s+VALUES\s*\((.+)\)/i);
                 if (insertMatch) {
                     const tbl = insertMatch[1];
-                    if (!this._tables[tbl]) throw new Error(`no such table: ${tbl}`);
-                    const rawVals = insertMatch[3].split(',').map(v => {
-                        const s = v.trim();
-                        if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
-                            return s.slice(1, -1);
-                        }
+                    const vals = insertMatch[3].split(',').map(v => {
+                        const s = v.trim().replace(/^['"]|['"]$/g, '');
                         const n = Number(s);
                         return Number.isNaN(n) ? s : n;
                     });
-                    this._tables[tbl].rows.push(rawVals);
+                    state._tables[tbl].rows.push(vals);
                     continue;
                 }
-
-                const selectTableMatch = stmt.match(/^SELECT\s+(.+)\s+FROM\s+(\w+)/i);
+                const selectTableMatch = rawStmt.match(/^SELECT\s+(.+)\s+FROM\s+(\w+)/i);
                 if (selectTableMatch) {
-                    const tbl = selectTableMatch[2];
-                    if (!this._tables[tbl]) throw new Error(`no such table: ${tbl}`);
-                    const tableObj = this._tables[tbl];
-                    results.push({
-                        columns: tableObj.columns,
-                        values: tableObj.rows
-                    });
-                    continue;
-                }
-
-                const selectExprMatch = stmt.match(/^SELECT\s+(.+)/i);
-                if (selectExprMatch) {
-                    const exprs = selectExprMatch[1].split(',').map(e => e.trim());
-                    const cols = [];
-                    const row = [];
-                    for (const expr of exprs) {
-                        const asMatch = expr.match(/^(.+?)\s+AS\s+(\w+)$/i);
-                        const rawExpr = asMatch ? asMatch[1].trim() : expr;
-                        const colName = asMatch ? asMatch[2] : rawExpr;
-                        cols.push(colName);
-                        if ((rawExpr.startsWith("'") && rawExpr.endsWith("'")) || (rawExpr.startsWith('"') && rawExpr.endsWith('"'))) {
-                            row.push(rawExpr.slice(1, -1));
-                        } else if (/^[\d\s+\-*/%()]+$/.test(rawExpr)) {
-                            row.push(Function(`return (${rawExpr})`)());
-                        } else {
-                            row.push(rawExpr);
-                        }
+                    const tbl = state._tables[selectTableMatch[2]];
+                    if (tbl) {
+                        const lines = mode === 'table'
+                            ? formatTable(tbl.columns, tbl.rows, { showRowCount: false })
+                            : mode === 'csv'
+                                ? formatCsv(tbl.columns, tbl.rows, true)
+                                : formatPipeList(tbl.columns, tbl.rows, false);
+                        lines.forEach(l => io.stdout(l));
                     }
-                    results.push({ columns: cols, values: [row] });
                     continue;
                 }
-
-                throw new Error(`syntax error near "${stmt}"`);
+                const selectExprMatch = rawStmt.match(/^SELECT\s+(.+?)(?:\s+AS\s+(\w+))?$/i);
+                if (selectExprMatch) {
+                    const val = Function(`return (${selectExprMatch[1]})`)();
+                    io.stdout(String(val));
+                }
             }
-            return results;
+
+            if (dbPath !== ':memory:') {
+                io.writeFile(dbPath, JSON.stringify(state));
+            }
+            return 0;
         }
-
-        export() {
-            const json = JSON.stringify({ _tables: this._tables });
-            return new TextEncoder().encode(json);
-        }
-
-        close() {}
-    }
-
-    return async () => ({ Database: MockDatabase });
+    };
 }
 
 /**
@@ -256,7 +233,7 @@ function createMockPglite() {
 }
 
 /**
- * Mock AssemblyScript compiler (`assemblyscript/asc`).
+ * Mock AssemblyScript CLI (`assemblyscript/asc`).
  */
 function createMockAsc() {
     return {
@@ -265,15 +242,22 @@ function createMockAsc() {
             let inputFile = null;
             let outFile = null;
             let textFile = null;
+            let evalCode = null;
             for (let i = 0; i < args.length; i++) {
                 const a = args[i];
                 if ((a === '-o' || a === '--outFile') && i + 1 < args.length) {
                     outFile = args[++i];
                 } else if ((a === '-t' || a === '--textFile') && i + 1 < args.length) {
                     textFile = args[++i];
+                } else if ((a === '-e' || a === '--eval') && i + 1 < args.length) {
+                    evalCode = args[++i];
                 } else if (!a.startsWith('-')) {
                     inputFile = a;
                 }
+            }
+            if (evalCode !== null) {
+                options.stdout(String(Function(`return (${evalCode})`)()));
+                return { error: null };
             }
             if (!inputFile) {
                 options.stderr.write('ERROR: No input file specified\n');
@@ -289,7 +273,6 @@ function createMockAsc() {
                 return { error: new Error('Compilation failed') };
             }
             if (outFile) {
-                // If source contains `__eval`, emit the 42.0 evaluator binary
                 const bytesToWrite = src.includes('__eval') ? EVAL_42_WASM_BYTES : MINIMAL_WASM_BYTES;
                 options.writeFile(outFile, bytesToWrite, '.');
             }
@@ -302,156 +285,127 @@ function createMockAsc() {
 }
 
 /**
- * Mock QuickJS-Emscripten module.
+ * Mock QuickJS module using standard CLI main(args, io).
  */
 function createMockQuickJs() {
     return {
-        async getQuickJS() {
-            return {
-                newContext() {
-                    return {
-                        evalCode(code) {
-                            const val = Function(`return (${code})`)();
-                            return val;
-                        },
-                        dispose() {}
-                    };
-                },
-                evalCode(code) {
-                    return Function(`return (${code})`)();
-                }
-            };
+        async main(args, io) {
+            let code = io.stdin;
+            for (let i = 0; i < args.length; i++) {
+                if ((args[i] === '-e' || args[i] === '--eval') && i + 1 < args.length) code = args[++i];
+                else if (!args[i].startsWith('-')) code = io.readFile(args[i]);
+            }
+            if (code) io.stdout(String(Function(`return (${code})`)()));
+            return 0;
         }
     };
 }
 
 /**
- * Mock Lua (wasmoon) module.
+ * Mock Lua module using standard CLI main(args, io).
  */
 function createMockLua() {
-    class LuaFactory {
-        async createEngine() {
-            let printFn = () => {};
-            return {
-                global: {
-                    set(name, fn) {
-                        if (name === 'print') printFn = fn;
-                    },
-                    close() {}
-                },
-                async doString(code) {
-                    const printMatch = code.match(/print\(['"](.+?)['"]\)/);
-                    if (printMatch) {
-                        printFn(printMatch[1]);
-                        return undefined;
-                    }
-                    const retMatch = code.match(/^return\s+(.+)$/);
-                    if (retMatch) {
-                        return Function(`return (${retMatch[1]})`)();
-                    }
-                    return undefined;
-                }
-            };
+    return {
+        async main(args, io) {
+            let code = io.stdin;
+            for (let i = 0; i < args.length; i++) {
+                if (args[i] === '-e' && i + 1 < args.length) code = args[++i];
+                else if (!args[i].startsWith('-')) code = io.readFile(args[i]);
+            }
+            if (code) {
+                const retMatch = code.match(/^return\s+(.+)$/);
+                if (retMatch) io.stdout(String(Function(`return (${retMatch[1]})`)()));
+            }
+            return 0;
         }
-    }
-    return { LuaFactory };
+    };
 }
 
 /**
- * Mock jq-web module.
+ * Mock jq module using standard CLI main(args, io).
  */
 function createMockJq() {
     return {
-        async json(data, filter) {
-            if (filter === '.' || !filter) return data;
-            // Simple path traversal `.a.b` or `.users[].name`
-            const parts = filter.replace(/^\./, '').split('.');
+        async main(args, io) {
+            const positional = args.filter(a => !a.startsWith('-'));
+            const filter = positional.shift() || '.';
+            const input = positional.length > 0 ? io.readFile(positional[0]) : io.stdin;
+            const data = JSON.parse(input);
+            const parts = filter.replace(/^\./, '').split('.').filter(Boolean);
             let cur = data;
             for (const p of parts) {
-                if (p.endsWith('[]')) {
-                    const key = p.slice(0, -2);
-                    cur = key ? cur[key] : cur;
-                } else if (Array.isArray(cur)) {
-                    cur = cur.map(item => item[p]);
-                } else if (cur && typeof cur === 'object') {
-                    cur = cur[p];
-                }
+                cur = cur ? cur[p] : undefined;
             }
-            return cur;
+            io.stdout(typeof cur === 'string' && args.includes('-r') ? cur : JSON.stringify(cur));
+            return 0;
         }
     };
 }
 
 /**
- * Mock Pyodide module.
+ * Mock Python3 module using standard CLI main(args, io).
  */
 function createMockPyodide() {
-    let stdoutBatch = () => {};
     return {
-        async loadPyodide() {
-            return {
-                setStdout({ batched }) { stdoutBatch = batched; },
-                setStderr() {},
-                async runPythonAsync(code) {
-                    const printMatch = code.match(/print\(['"](.+?)['"]\)/);
-                    if (printMatch) {
-                        stdoutBatch(printMatch[1]);
-                        return undefined;
-                    }
-                    if (/^[\d\s+\-*/%()]+$/.test(code.trim())) {
-                        return Function(`return (${code})`)();
-                    }
-                    return undefined;
-                }
-            };
+        async main(args, io) {
+            let code = null;
+            for (let i = 0; i < args.length; i++) {
+                if (args[i] === '-c' && i + 1 < args.length) code = args[++i];
+                else if (!args[i].startsWith('-')) code = io.readFile(args[i]);
+            }
+            if (!code) code = io.stdin;
+            const printMatch = code && code.match(/print\(['"](.+?)['"]\)/);
+            if (printMatch) io.stdout(printMatch[1]);
+            else if (code && /^[\d\s+\-*/%()]+$/.test(code.trim())) io.stdout(String(Function(`return (${code})`)()));
+            return 0;
         }
     };
 }
 
 /**
- * Mock DuckDB-WASM module.
+ * Mock DuckDB module using standard CLI main(args, io).
  */
 function createMockDuckDb() {
     return {
-        async createConnection() {
-            return {
-                async query(sql) {
-                    if (/SELECT\s+100\s+AS\s+total/i.test(sql)) {
-                        return { columns: ['total'], rows: [[100]] };
-                    }
-                    return { columns: ['ok'], rows: [[1]] };
-                },
-                async close() {}
-            };
+        async main(args, io) {
+            let sql = io.stdin;
+            for (let i = 0; i < args.length; i++) {
+                if ((args[i] === '-c' || args[i] === '-s') && i + 1 < args.length) sql = args[++i];
+            }
+            if (/SELECT\s+100\s+AS\s+total/i.test(sql)) {
+                io.stdout('100');
+            }
+            return 0;
         }
     };
 }
 
 /**
- * Mock Graphviz WASM module.
+ * Mock Graphviz module using standard CLI main(args, io).
  */
 function createMockGraphviz() {
     return {
-        Graphviz: {
-            async load() {
-                return {
-                    async layout(dotSource, format) {
-                        if (format === 'svg') {
-                            return `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${dotSource.trim()} --></svg>`;
-                        }
-                        return dotSource;
-                    }
-                };
+        async main(args, io) {
+            let outFile = null;
+            let inFile = null;
+            for (let i = 0; i < args.length; i++) {
+                if (args[i] === '-o' && i + 1 < args.length) outFile = args[++i];
+                else if (!args[i].startsWith('-')) inFile = args[i];
             }
+            const dotSource = inFile ? io.readFile(inFile) : io.stdin;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${(dotSource || '').trim()} --></svg>`;
+            if (outFile) io.writeFile(outFile, svg);
+            else io.stdout(svg);
+            return 0;
         }
     };
 }
 
 /**
- * Mock FFmpeg WASM module.
+ * Mock FFmpeg virtual-FS class (instantiated by generic runtime's class/virtual-FS support).
  */
 function createMockFfmpeg() {
-    class MockFFmpeg {
+    return class MockFFmpeg {
         constructor() {
             this.loaded = false;
             this._files = new Map();
@@ -477,8 +431,7 @@ function createMockFfmpeg() {
         async readFile(name) {
             return this._files.get(name) || null;
         }
-    }
-    return { FFmpeg: MockFFmpeg };
+    };
 }
 
 /**
@@ -681,7 +634,7 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
 
         const { output, exitCode } = await run(shell2, 'sqlite3 --version');
         expect(exitCode).toBe(0);
-        expect(output.join('\n')).toContain('sql.js');
+        expect(output.join('\n')).toContain('1.13.0');
     });
 });
 
