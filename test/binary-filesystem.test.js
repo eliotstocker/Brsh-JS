@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
+const Shell = require('../index.js');
 const FileSystem = require('../lib/FileSystem.js');
 const { BinaryFile, SymlinkRef } = require('../lib/FileSystem.js');
 
@@ -172,3 +173,250 @@ describe('FileSystem virtual symlinks', () => {
         expect(output.join('')).toBe('symlinked content');
     });
 });
+
+describe('BRFS Indexed Binary Container & Client-Side Persistence', () => {
+    const {
+        isBinaryContainer,
+        serializeBinaryFilesystem,
+        deserializeBinaryFilesystem,
+        FilesystemStorage
+    } = require('../lib/BinaryContainer.js');
+
+    it('serializes text files, binary files, directories, symlinks, and permissions without base64 bloat', () => {
+        const rawPngBytes = new Uint8Array(Buffer.from(RED_PNG_B64, 'base64'));
+        const fs = new FileSystem('/', {
+            readme: 'Hello BRFS!',
+            img: RED_PNG_DATA_URI,
+            bin: {
+                'script.sh': '#!/sh.js\necho "from container"'
+            }
+        }, {
+            '/readme': 0o644,
+            '/bin/script.sh': 0o755
+        });
+        fs.createSymlink('/readme', '/readme-link');
+
+        const containerBytes = fs.toBinaryContainer();
+        expect(containerBytes instanceof Uint8Array).toBe(true);
+        expect(isBinaryContainer(containerBytes)).toBe(true);
+        // Header magic "BRFS"
+        expect(String.fromCharCode(...containerBytes.subarray(0, 4))).toBe('BRFS');
+
+        // Deserialize back into a fresh FileSystem
+        const restored = new FileSystem('/', containerBytes);
+        expect(restored.getFileByPath('/readme')).toBe('Hello BRFS!');
+        expect(restored.getMode('/bin/script.sh')).toBe(0o755);
+        expect(restored.isSymlink('/readme-link')).toBe(true);
+        expect(restored.getFileByPath('/readme-link')).toBe('Hello BRFS!');
+
+        const restoredImg = restored.getFileByPath('/img');
+        expect(restoredImg instanceof BinaryFile).toBe(true);
+        expect(restoredImg.length).toBe(rawPngBytes.length);
+        expect(restoredImg.toString()).toBe(RED_PNG_DATA_URI);
+    });
+
+    it('boots a Shell directly from a serialized BRFS Uint8Array container and preserves executable permissions', async () => {
+        const shell1 = await createShell({
+            filesystem: {
+                home: {
+                    'hello.sh': '#!/sh.js\necho "persisted script works"',
+                    'notes.txt': 'initial note'
+                }
+            },
+            permissions: {
+                '/home/hello.sh': 0o755
+            }
+        });
+
+        await run(shell1, 'echo "updated note" > /home/notes.txt');
+        await run(shell1, 'ln -s /home/notes.txt /home/link.txt');
+
+        // Save snapshot using FilesystemStorage.save()
+        const snapshotBytes = await FilesystemStorage.save(shell1);
+        expect(isBinaryContainer(snapshotBytes)).toBe(true);
+
+        // Restore into a brand-new Shell instance by passing snapshotBytes as `filesystem`
+        const shell2 = await createShell({
+            filesystem: snapshotBytes
+        });
+
+        const noteRes = await run(shell2, 'cat /home/link.txt');
+        expect(noteRes.output.join('')).toBe('updated note');
+
+        const scriptRes = await run(shell2, '/home/hello.sh');
+        expect(scriptRes.exitCode).toBe(0);
+        expect(scriptRes.output).toContain('persisted script works');
+    });
+
+    it('supports createAutoSave onFsChange hook emitting binary snapshots', async () => {
+        const snapshots = [];
+        const onFsChange = FilesystemStorage.createAutoSave('test-key', (bytes) => {
+            snapshots.push(bytes);
+        });
+
+        const shell = await createShell({
+            filesystem: { home: {} },
+            onFsChange
+        });
+
+        await run(shell, 'echo "hello auto-save" > /home/auto.txt');
+        // Wait a microtask tick for debounced _triggerChange
+        await new Promise(r => setTimeout(r, 10));
+
+        expect(snapshots.length).toBeGreaterThan(0);
+        const latest = snapshots[snapshots.length - 1];
+        expect(isBinaryContainer(latest)).toBe(true);
+
+        const decoded = deserializeBinaryFilesystem(latest);
+        expect(decoded.filesystem.home['auto.txt']).toBe('hello auto-save');
+    });
+
+    it('accepts a URL string directly in new Shell({ filesystem: "/fs.brfs" }) without a JS loader', async () => {
+        const containerBytes = serializeBinaryFilesystem(
+            {
+                home: {
+                    '.profile': '#!/sh.js\nexport FROM_PROFILE="loaded"',
+                    'greeting.txt': 'hello from url brfs'
+                }
+            },
+            {
+                '/home/greeting.txt': 0o640
+            }
+        );
+
+        const origFetch = global.fetch;
+        global.fetch = async (url) => {
+            if (url === 'https://example.test/fs.brfs' || url === '/fs.brfs') {
+                return {
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () => containerBytes.buffer.slice(
+                        containerBytes.byteOffset,
+                        containerBytes.byteOffset + containerBytes.byteLength
+                    )
+                };
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        };
+
+        try {
+            class ExtraCmd extends Shell.Command {
+                static get name() { return 'extracmd'; }
+                get name() { return 'extracmd'; }
+                run() {
+                    this.stdOut = 'extra command works';
+                }
+            }
+
+            const shell = new Shell({
+                filesystem: '/fs.brfs',
+                cwd: '/home',
+                profile: '/home/.profile'
+            });
+            // Register a command synchronously while /fs.brfs is still being fetched
+            shell.context.setCommand(ExtraCmd);
+
+            // Commands called immediately automatically wait for /fs.brfs to finish mounting
+            const catRes = await run(shell, 'cat greeting.txt');
+            expect(catRes.exitCode).toBe(0);
+            expect(catRes.output.join('')).toBe('hello from url brfs');
+
+            const envRes = await run(shell, 'echo $FROM_PROFILE');
+            expect(envRes.output.join('')).toBe('loaded');
+
+            const cmdRes = await run(shell, 'extracmd');
+            expect(cmdRes.exitCode).toBe(0);
+            expect(cmdRes.output.join('')).toBe('extra command works');
+
+            expect(shell.context.fs.getMode('/home/greeting.txt')).toBe(0o640);
+        } finally {
+            global.fetch = origFetch;
+        }
+    });
+
+    it('accepts a Promise (such as Shell.Storage.loadOrFetch) or gzipped .brfs bytes directly', async () => {
+        const zlib = require('zlib');
+        const containerBytes = serializeBinaryFilesystem(
+            { data: { 'msg.txt': 'compressed brfs works' } },
+            { '/data/msg.txt': 0o600 }
+        );
+        const gzippedBytes = new Uint8Array(zlib.gzipSync(Buffer.from(containerBytes)));
+
+        const shell = new Shell({
+            filesystem: FilesystemStorage.loadOrFetch('non-existent-key', Promise.resolve(gzippedBytes)),
+            cwd: '/data'
+        });
+
+        const res = await run(shell, 'cat msg.txt');
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('')).toBe('compressed brfs works');
+        expect(shell.context.fs.getMode('/data/msg.txt')).toBe(0o600);
+    });
+
+    it('persists and restores from IndexedDB via FilesystemStorage.save / load / loadOrFetch', async () => {
+        // Minimal in-memory IndexedDB mock
+        const stores = new Map();
+        const origIdb = global.indexedDB;
+        global.indexedDB = {
+            open(_dbName, _version) {
+                const req = {};
+                setTimeout(() => {
+                    if (!stores.has('snapshots')) {
+                        stores.set('snapshots', new Map());
+                        if (req.onupgradeneeded) {
+                            req.result = { createObjectStore: (name) => stores.set(name, new Map()) };
+                            req.onupgradeneeded();
+                        }
+                    }
+                    req.result = {
+                        createObjectStore: (name) => stores.set(name, new Map()),
+                        transaction: (storeName) => {
+                            const tx = {
+                                objectStore: () => ({
+                                    put: (val, key) => {
+                                        stores.get(storeName).set(key, val);
+                                        setTimeout(() => tx.oncomplete && tx.oncomplete(), 0);
+                                    },
+                                    get: (key) => {
+                                        const getReq = {};
+                                        setTimeout(() => {
+                                            getReq.result = stores.get(storeName).get(key);
+                                            if (getReq.onsuccess) getReq.onsuccess();
+                                        }, 0);
+                                        return getReq;
+                                    }
+                                }),
+                                close: () => {}
+                            };
+                            return tx;
+                        },
+                        close: () => {}
+                    };
+                    if (req.onsuccess) req.onsuccess();
+                }, 0);
+                return req;
+            }
+        };
+
+        try {
+            const shell1 = await createShell({
+                filesystem: { home: { 'idb.txt': 'saved in indexeddb' } },
+                permissions: { '/home/idb.txt': 0o640 }
+            });
+            await FilesystemStorage.save(shell1, 'idb-test-key');
+
+            // Verify loadOrFetch prefers the IndexedDB snapshot over fallback
+            const shell2 = new Shell({
+                filesystem: FilesystemStorage.loadOrFetch('idb-test-key', { home: { 'idb.txt': 'fallback' } }),
+                cwd: '/home'
+            });
+            const res = await run(shell2, 'cat idb.txt');
+            expect(res.exitCode).toBe(0);
+            expect(res.output.join('')).toBe('saved in indexeddb');
+            expect(shell2.context.fs.getMode('/home/idb.txt')).toBe(0o640);
+        } finally {
+            global.indexedDB = origIdb;
+        }
+    });
+});
+

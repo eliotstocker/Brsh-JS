@@ -12,6 +12,9 @@ const localCommands = require('./lib/local');
 const events = require('events');
 const BaseFileSystem = require('./lib/BaseFileSystem');
 
+const BinaryContainer = require('./lib/BinaryContainer');
+const { isAsyncFilesystemSource, resolveFilesystemSource } = BinaryContainer;
+
 const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
 
 
@@ -61,17 +64,6 @@ class Shell extends EventEmitter {
                 this.context.setVar('-', initialFlags);
             }
         }
-        if (useRealFilesystem) {
-            this.context.setNodeFilesystem(cwd);
-        } else {
-            this.context.setFilesystem(filesystem, permissions);
-        }
-        this.context.setCwd(cwd);
-
-        const pathDirExisted = useRealFilesystem || this.context.fs.exists(this.context.getVar('PATH'));
-        this._loadDefaultCommands();
-        this._loadBuiltinCommands(pathDirExisted);
-
         this._lastCode = 0;
         this._subshell = subshell;
         this._useRealFilesystem = useRealFilesystem;
@@ -79,13 +71,106 @@ class Shell extends EventEmitter {
         this._motd = motd;
         this._initialCommand = command || null;
         this._suppressMotd = Boolean(command);
+        this._loadingFs = null;
+        this._queuedWhileLoading = false;
 
-        if (!subshell) {
-            this._initializing = true;
-            setTimeout(() => this._init(), 0);
+        if (useRealFilesystem) {
+            this.context.setNodeFilesystem(cwd);
+            this.context.setCwd(cwd);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(true);
+            this.ready = Promise.resolve(this);
+            if (!subshell) {
+                this._initializing = true;
+                setTimeout(() => this._init(), 0);
+            } else {
+                this._initializing = false;
+            }
+        } else if (isAsyncFilesystemSource(filesystem) || (filesystem && typeof filesystem === 'object' && isAsyncFilesystemSource(filesystem.filesystem))) {
+            // Initialize a temporary empty filesystem so synchronous calls like `shell.context.setCommand(Wbt)` work immediately
+            this.context.setFilesystem({}, permissions);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(false);
+            this._initializing = !subshell;
+            this._loadingFs = this._initAsyncFilesystem(filesystem, permissions, cwd, profile);
+            this.ready = this._loadingFs;
+        } else {
+            this.context.setFilesystem(filesystem, permissions);
+            this.context.setCwd(cwd);
+
+            const pathDirExisted = this.context.fs.exists(this.context.getVar('PATH'));
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(pathDirExisted);
+            this.ready = Promise.resolve(this);
+
+            if (!subshell) {
+                this._initializing = true;
+                setTimeout(() => this._init(), 0);
+            } else {
+                this._initializing = false;
+            }
+        }
+    }
+
+    async _initAsyncFilesystem(filesystemSource, permissions, cwd) {
+        const binPath = this.context.getVar('PATH') || '/bin';
+        const getBinSnapshot = () => {
+            try {
+                const raw = this.context.fs.getRaw();
+                const parts = binPath.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+                let dir = raw;
+                for (const p of parts) {
+                    dir = dir && dir[p];
+                }
+                return dir && typeof dir === 'object' ? Object.assign({}, dir) : {};
+            } catch (_) {
+                return {};
+            }
+        };
+
+        const defaultBinSnapshot = getBinSnapshot();
+        try {
+            const resolved = await resolveFilesystemSource(filesystemSource, permissions);
+            const postBinSnapshot = getBinSnapshot();
+
+            // Preserve any custom commands registered via `shell.context.setCommand(...)` while the async load was in flight
+            const customCommands = [];
+            for (const [k, v] of Object.entries(postBinSnapshot)) {
+                if (defaultBinSnapshot[k] !== v && typeof v === 'function') {
+                    customCommands.push(v);
+                }
+            }
+
+            // Temporarily suppress onFsChange during initial mount
+            const savedOnChange = this.context._onFsChange;
+            this.context._onFsChange = null;
+            this.context.setFilesystem(resolved.filesystem, resolved.permissions);
+            const pathDirExisted = this.context.fs.exists(binPath);
+            this._loadDefaultCommands();
+            this._loadBuiltinCommands(pathDirExisted);
+            for (const cmd of customCommands) {
+                this.context.setCommand(cmd);
+            }
+            this.context.setCwd(cwd);
+            this.context._onFsChange = savedOnChange;
+            if (savedOnChange && this.context.fs) {
+                this.context.fs._onChange = () => savedOnChange(this.context.fs.getRaw(), this.context.fs.getRawPermissions());
+            }
+        } catch (err) {
+            this.emit('stdErr', err.message || String(err));
+        } finally {
+            this._loadingFs = null;
+        }
+
+        if (!this._subshell) {
+            await this._init();
         } else {
             this._initializing = false;
+            if (!this._queuedWhileLoading && !this.destroyed) {
+                this.emit('status', Shell.STATUS_READY);
+            }
         }
+        return this;
     }
 
     get path() {
@@ -163,7 +248,7 @@ class Shell extends EventEmitter {
             }
         } finally {
             this._initializing = false;
-            if (!this.destroyed) {
+            if (!this._queuedWhileLoading && !this.destroyed) {
                 this.emit('status', Shell.STATUS_READY);
             }
         }
@@ -258,6 +343,11 @@ class Shell extends EventEmitter {
         const groups = this._groupPipes(segments);
         let shouldRun = true;
 
+        if (this._loadingFs && events) {
+            this._queuedWhileLoading = true;
+        }
+        const initialPromise = this._loadingFs ? Promise.resolve(this._loadingFs) : Promise.resolve();
+
         const promise = groups.reduce((chain, { commands, op }) => {
             return chain.then(() => {
                 if (!shouldRun) {
@@ -272,7 +362,7 @@ class Shell extends EventEmitter {
                     else if (op === ';') shouldRun = true;
                 });
             });
-        }, Promise.resolve());
+        }, initialPromise);
 
         if(events) {
             return promise.then(() => {
@@ -543,10 +633,24 @@ class Shell extends EventEmitter {
 
             throw new Error(`${command}: permission denied`);
         }
-        const cmd = this.context.getCommand(command);
+        let cmd = this.context.getCommand(command);
+        let cmdName = command;
+        if (!cmd && !command.endsWith('.wasm')) {
+            cmd = this.context.getCommand(`${command}.wasm`);
+            if (cmd) cmdName = `${command}.wasm`;
+        }
 
         if(!cmd) {
             throw new Error(`${command}: Command not found`);
+        }
+
+        const binLocation = `${this.path}/${cmdName}`;
+        if (this._isWasmFile(binLocation, cmd)) {
+            return WasmCommand.bind(null, binLocation);
+        }
+
+        if (typeof cmd === 'string' && cmd.startsWith('#!')) {
+            return ScriptCommand.bind(this, cmd);
         }
 
         return cmd;
@@ -618,7 +722,7 @@ class Shell extends EventEmitter {
     }
 
     async _runAndCapture(cmd) {
-        const subshell = new global.shell({
+        const subshell = new globalThis.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
             permissions: this.context.fs.getRawPermissions(),
@@ -668,7 +772,7 @@ class Shell extends EventEmitter {
     }
 
     async _captureForPipe(cmd, stdin) {
-        const subshell = new global.shell({
+        const subshell = new globalThis.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
             permissions: this.context.fs.getRawPermissions(),
@@ -755,6 +859,9 @@ class Shell extends EventEmitter {
 
     _isWasmFile(path, content) {
         if (path.endsWith('.wasm') || path.endsWith('.wat')) return true;
+        if (content instanceof Uint8Array) {
+            return content.length >= 4 && content[0] === 0x00 && content[1] === 0x61 && content[2] === 0x73 && content[3] === 0x6d;
+        }
         if (typeof content !== 'string') return false;
         // Binary WASM: magic bytes \0asm
         if (content.charCodeAt(0) === 0 && content.slice(1, 4) === 'asm') return true;
@@ -773,7 +880,11 @@ Shell.STATUS_DESTROYED = 'DESTROYED';
 
 Shell.Command = Command;
 Shell.InteractiveCommand = InteractiveCommand;
+Shell.WasmCommand = WasmCommand;
+Shell.ReplCommand = require('./lib/ReplCommand');
 Shell.FS = BaseFileSystem;
+Shell.BinaryContainer = require('./lib/BinaryContainer');
+Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
 
-global.shell = Shell;
+globalThis.shell = Shell;
 module.exports = Shell;

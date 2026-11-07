@@ -208,6 +208,133 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 **Note:** when using [exportFileSystem](bin/Readme.md), do not give scripts a `.js` extension — that causes them to be loaded as JavaScript modules rather than script strings.
 
+## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
+
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `pglite`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+
+### Enabling `wbt`
+
+```js
+// ESM
+import Terminal from 'brsh/terminal';
+import Wbt from 'brsh/wbt';
+
+const term = new Terminal({ el: document.body });
+term.cli.context.setCommand(Wbt);
+```
+
+```js
+// CJS
+const Shell = require('brsh');
+const Wbt = require('brsh/wbt');
+
+const shell = new Shell({ filesystem: {} });
+shell.context.setCommand(Wbt);
+```
+
+### Usage in the shell
+
+```sh
+# List available or installed WASM packages
+wbt list
+wbt list --installed
+
+# Search and inspect packages
+wbt search postgres
+wbt show pglite
+
+# Install curated WASM packages into /bin
+wbt install pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+
+# Run PGlite as a one-shot query, interactive REPL, or a background server daemon!
+pglite -d /home/pgdata -c "CREATE TABLE users (id INT, name TEXT); INSERT INTO users VALUES (1, 'Ada');"
+pglite # launches interactive PostgreSQL REPL
+
+# Start a PGlite background daemon on localhost:5432 and query it via HTTP (curl / fetch) or psql
+pg_ctl start -D /home/pgdata -p 5432
+wbt services
+curl -s -X POST -d "SELECT * FROM users;" http://localhost:5432/query
+psql -p 5432 -c "SELECT * FROM users;"
+pg_ctl stop -p 5432
+
+# Run SQLite3 (persists database files directly in the brsh filesystem)
+sqlite3 /home/app.db "CREATE TABLE notes (id INT, body TEXT); INSERT INTO notes VALUES (1, 'Hello WASM');"
+sqlite3 -table /home/app.db "SELECT * FROM notes;"
+echo "SELECT * FROM notes;" | sqlite3 -csv /home/app.db
+
+# Run AssemblyScript directly like ts-node / node (`asrun` / `asnode`), or compile to .wasm (`asc`)
+asrun -e "console.log('Hello from AssemblyScript!')"
+asrun /home/script.ts
+asc /home/hello.ts -o /home/hello.wasm && /home/hello.wasm
+
+# Other built-in WASM tools: jq, python3 (Pyodide), duckdb, dot (Graphviz), ffmpeg
+cat data.json | jq -r ".user.name"
+python3 -c "print([x * x for x in range(5)])"
+duckdb -c "SELECT 42 AS answer"
+dot -Tsvg graph.dot -o graph.svg
+ffmpeg -i input.mp4 output.webm
+
+# Install any generic Emscripten / WASI package or custom .wasm URL at runtime (no custom wrapper needed!)
+wbt install npm:cowsay-wasm
+wbt install mytool https://example.com/mytool.wasm
+mytool
+
+# Remove an installed binary
+wbt remove sqlite3
+```
+
+## Binary Filesystem Container (`.brfs`) & Client-Side Persistence
+
+While `brsh` continues to support standard JS object filesystems (and legacy `.brsh` compressed JS bundles), it also supports an **Indexed Binary Container (`.brfs`)** format (`BRFS` magic header + JSON metadata/permissions index + contiguous raw binary payload with zero base64 overhead) as well as **IndexedDB client-side persistence**.
+
+### Exporting a `.brfs` Binary Container
+
+```shell
+# Standalone .brfs binary container (load via fetch('/fs.brfs').then(r => r.arrayBuffer()))
+exportFileSystem ./filesystem -o ./fs.brfs
+
+# Or generate a JS loader that fetches and mounts ./fs.brfs automatically
+exportFileSystem ./filesystem -o ./fs.js -v fs --binary
+```
+
+### Mounting & Snapshot Serialization
+
+```js
+// Pass a .brfs URL directly to Terminal or Shell (no JS loader needed!):
+const term = new Terminal({
+    el: document.body,
+    filesystem: '/fs.brfs'
+});
+
+// Or pass a pre-fetched ArrayBuffer / Uint8Array (raw or gzip-compressed):
+const bytes = new Uint8Array(await (await fetch('/fs.brfs')).arrayBuffer());
+const shell = new Shell({ filesystem: bytes });
+
+// Export the live filesystem (including runtime changes, permissions, symlinks, and binaries) to a .brfs Uint8Array:
+const snapshot = shell.context.fs.toBinaryContainer();
+```
+
+### Client-Side Persistence (IndexedDB)
+
+Use `Shell.Storage` (`FilesystemStorage`) to persist user changes across page reloads in IndexedDB:
+
+```js
+const Terminal = require('brsh/terminal');
+const Shell = require('brsh');
+
+const term = new Terminal({
+    el: document.body,
+    // Loads saved snapshot from IndexedDB if present, otherwise fetches '/fs.brfs'
+    filesystem: Shell.Storage.loadOrFetch('my-app', '/fs.brfs'),
+    // Automatically persists binary container to IndexedDB whenever files or permissions change
+    onFsChange: Shell.Storage.createAutoSave('my-app')
+});
+
+// Or manually save/load at any time:
+await Shell.Storage.save(term.cli, 'my-app');
+const savedFs = await Shell.Storage.load('my-app');
+```
+
 ## More Examples
 On my website I have extended the functionality adding some simple extra utilities such as an ANSI image viewer and a markdown parser based on open-source node CLI utilities.
 

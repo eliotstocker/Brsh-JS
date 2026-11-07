@@ -1,11 +1,13 @@
 import _Shell from 'brsh';
 import _Terminal from 'brsh/terminal';
+import _Wbt from 'brsh/wbt';
 import Pico from './pico.js';
 
 // @originjs/vite-plugin-commonjs wraps CJS module.exports in a namespace
 // object in production builds, so unwrap .default if present.
 const Shell = _Shell?.default ?? _Shell;
 const Terminal = _Terminal?.default ?? _Terminal;
+const Wbt = _Wbt?.default ?? _Wbt;
 
 async function init() {
     // Support both plain-object (uncompressed) and Promise (compressed) fs exports
@@ -19,6 +21,7 @@ async function init() {
 
     globalThis.Shell = Shell;
     globalThis.Terminal = Terminal;
+    globalThis.Wbt = Wbt;
 
     const term = new Terminal({
         el: document.body,
@@ -34,8 +37,9 @@ async function init() {
 
     globalThis.term = term;
 
-    // Register demo-only interactive commands
+    // Register demo-only optional commands
     term.cli.context.setCommand(Pico);
+    term.cli.context.setCommand(Wbt);
 }
 
 init();

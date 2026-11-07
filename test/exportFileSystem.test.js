@@ -137,6 +137,18 @@ describe('buildStructure', () => {
         const { permissions } = buildStructure(root);
         expect(permissions['/bin/tool.sh']).toBe(0o755);
     });
+
+    it('encodes .wasm files as data:application/wasm;base64 and strips .wasm extension', () => {
+        const sub = join(root, 'bin');
+        mkdirSync(sub);
+        const wasmBytes = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        writeFileSync(join(sub, 'jq.wasm'), wasmBytes);
+        chmodSync(join(sub, 'jq.wasm'), 0o755);
+        const { filesystem, permissions } = buildStructure(root);
+        expect(filesystem.bin).toHaveProperty('jq');
+        expect(filesystem.bin.jq).toBe(`data:application/wasm;base64,${wasmBytes.toString('base64')}`);
+        expect(permissions['/bin/jq']).toBe(0o755);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -347,3 +359,69 @@ describe('exportFileSystem CLI --compress', () => {
         expect(code.length).toBeGreaterThan(100);
     });
 });
+
+describe('exportFileSystem CLI --binary (.brfs indexed binary container)', () => {
+    const { isBinaryContainer, deserializeBinaryFilesystem } = require('../lib/BinaryContainer.js');
+    let root;
+    let outDir;
+
+    beforeEach(() => {
+        root = tmpDir();
+        outDir = tmpDir();
+        mkdirSync(join(root, 'bin'));
+        writeFileSync(join(root, 'hello.txt'), 'Hello Binary Container');
+        writeFileSync(join(root, 'bin', 'run.sh'), '#!/sh.js\necho hi');
+        chmodSync(join(root, 'bin', 'run.sh'), 0o755);
+        writeFileSync(join(root, 'bin', 'tool.wasm'), Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]));
+        chmodSync(join(root, 'bin', 'tool.wasm'), 0o755);
+    });
+
+    afterEach(() => {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outDir, { recursive: true, force: true });
+    });
+
+    it('writes a standalone BRFS v2 binary container when -o ends with .brfs', () => {
+        const outFile = join(outDir, 'fs.brfs');
+        const r = runCLI([root, '-o', outFile]);
+        expect(r.status).toBe(0);
+        expect(existsSync(outFile)).toBe(true);
+
+        const raw = new Uint8Array(readFileSync(outFile));
+        expect(isBinaryContainer(raw)).toBe(true);
+
+        const { filesystem, permissions } = deserializeBinaryFilesystem(raw);
+        expect(filesystem['hello.txt']).toBe('Hello Binary Container');
+        expect(filesystem.bin['run.sh']).toBe('#!/sh.js\necho hi');
+        expect(filesystem.bin.tool instanceof Uint8Array).toBe(true);
+        expect(permissions['/bin/run.sh']).toBe(0o755);
+        expect(permissions['/bin/tool']).toBe(0o755);
+    });
+
+    it('writes a JS loader and .brfs binary container when --binary (-b) is passed with -o fs.js', () => {
+        const outFile = join(outDir, 'fs.js');
+        const r = runCLI([root, '-v', 'FS', '-o', outFile, '--binary']);
+        expect(r.status).toBe(0);
+        expect(existsSync(outFile)).toBe(true);
+        expect(existsSync(join(outDir, 'fs.brfs'))).toBe(true);
+
+        const raw = new Uint8Array(readFileSync(join(outDir, 'fs.brfs')));
+        expect(isBinaryContainer(raw)).toBe(true);
+    });
+
+    it('boots a Shell directly from an exported .brfs file path and executes scripts inside it', async () => {
+        const Shell = require('../index.js');
+        const outFile = join(outDir, 'fs.brfs');
+        const r = runCLI([root, '-o', outFile]);
+        expect(r.status).toBe(0);
+
+        const shell = new Shell({ filesystem: outFile });
+        const output = [];
+        shell.on('stdOut', line => output.push(line));
+        await shell.onCommand('run.sh && cat /hello.txt');
+
+        expect(output).toContain('hi');
+        expect(output).toContain('Hello Binary Container');
+    });
+});
+
