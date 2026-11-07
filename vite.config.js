@@ -17,6 +17,10 @@ export default defineConfig({
                 replacement: path.resolve(projectRoot, 'lib/Terminal.js')
             },
             {
+                find: /^brsh\/wpt$/,
+                replacement: path.resolve(projectRoot, 'lib/wpt/index.js')
+            },
+            {
                 find: /^brsh$/,
                 replacement: path.resolve(projectRoot, 'index.js')
             },

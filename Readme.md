@@ -208,6 +208,81 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 **Note:** when using [exportFileSystem](bin/Readme.md), do not give scripts a `.js` extension — that causes them to be loaded as JavaScript modules rather than script strings.
 
+## Web Package Tool (`wpt`) — Optional WASM Package Manager
+
+`wpt` is an optional, APT-style package manager for `brsh` that lets users install and run WebAssembly packages (such as `pglite`, `sqlite3`, `assemblyscript` / `asc`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+
+### Enabling `wpt`
+
+```js
+// ESM
+import Terminal from 'brsh/terminal';
+import Wpt from 'brsh/wpt';
+
+const term = new Terminal({ el: document.body });
+term.cli.context.setCommand(Wpt);
+```
+
+```js
+// CJS
+const Shell = require('brsh');
+const Wpt = require('brsh/wpt');
+
+const shell = new Shell({ filesystem: {} });
+shell.context.setCommand(Wpt);
+```
+
+### Usage in the shell
+
+```sh
+# List available or installed WASM packages
+wpt list
+wpt list --installed
+
+# Search and inspect packages
+wpt search postgres
+wpt show pglite
+
+# Install curated WASM packages into /bin
+wpt install pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+
+# Run PGlite as a one-shot query, interactive REPL, or a background server daemon!
+pglite -d /home/pgdata -c "CREATE TABLE users (id INT, name TEXT); INSERT INTO users VALUES (1, 'Ada');"
+pglite # launches interactive PostgreSQL REPL
+
+# Start a PGlite background daemon on localhost:5432 and query it via HTTP (curl / fetch) or psql
+pg_ctl start -D /home/pgdata -p 5432
+wpt services
+curl -s -X POST -d "SELECT * FROM users;" http://localhost:5432/query
+psql -p 5432 -c "SELECT * FROM users;"
+pg_ctl stop -p 5432
+
+# Run SQLite3 (persists database files directly in the brsh filesystem)
+sqlite3 /home/app.db "CREATE TABLE notes (id INT, body TEXT); INSERT INTO notes VALUES (1, 'Hello WASM');"
+sqlite3 -table /home/app.db "SELECT * FROM notes;"
+echo "SELECT * FROM notes;" | sqlite3 -csv /home/app.db
+
+# Run AssemblyScript directly like ts-node / node (`asrun` / `asnode`), or compile to .wasm (`asc`)
+asrun -e "console.log('Hello from AssemblyScript!')"
+asrun /home/script.ts
+asc /home/hello.ts -o /home/hello.wasm && /home/hello.wasm
+
+# Other built-in WASM tools: jq, python3 (Pyodide), duckdb, dot (Graphviz), ffmpeg
+cat data.json | jq -r ".user.name"
+python3 -c "print([x * x for x in range(5)])"
+duckdb -c "SELECT 42 AS answer"
+dot -Tsvg graph.dot -o graph.svg
+ffmpeg -i input.mp4 output.webm
+
+# Install any generic Emscripten / WASI package or custom .wasm URL at runtime (no custom wrapper needed!)
+wpt install npm:cowsay-wasm
+wpt install mytool https://example.com/mytool.wasm
+mytool
+
+# Remove an installed package
+wpt remove sqlite3
+```
+
 ## More Examples
 On my website I have extended the functionality adding some simple extra utilities such as an ANSI image viewer and a markdown parser based on open-source node CLI utilities.
 

@@ -755,6 +755,9 @@ class Shell extends EventEmitter {
 
     _isWasmFile(path, content) {
         if (path.endsWith('.wasm') || path.endsWith('.wat')) return true;
+        if (content instanceof Uint8Array) {
+            return content.length >= 4 && content[0] === 0x00 && content[1] === 0x61 && content[2] === 0x73 && content[3] === 0x6d;
+        }
         if (typeof content !== 'string') return false;
         // Binary WASM: magic bytes \0asm
         if (content.charCodeAt(0) === 0 && content.slice(1, 4) === 'asm') return true;
