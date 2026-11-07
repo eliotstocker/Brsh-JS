@@ -726,7 +726,7 @@ class Shell extends EventEmitter {
     }
 
     async _runAndCapture(cmd) {
-        const subshell = new global.shell({
+        const subshell = new globalThis.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
             permissions: this.context.fs.getRawPermissions(),
@@ -776,7 +776,7 @@ class Shell extends EventEmitter {
     }
 
     async _captureForPipe(cmd, stdin) {
-        const subshell = new global.shell({
+        const subshell = new globalThis.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
             permissions: this.context.fs.getRawPermissions(),
@@ -888,5 +888,5 @@ Shell.FS = BaseFileSystem;
 Shell.BinaryContainer = require('./lib/BinaryContainer');
 Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
 
-global.shell = Shell;
+globalThis.shell = Shell;
 module.exports = Shell;
