@@ -12,7 +12,7 @@ const localCommands = require('./lib/local');
 const events = require('events');
 const BaseFileSystem = require('./lib/BaseFileSystem');
 
-const variableRegex = /\${?([\w\d]+)}?/g;
+const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
 
 
 const EventEmitter = events.EventEmitter || events.default || events;
@@ -26,7 +26,20 @@ require('string.prototype.matchall').shim();
 class Shell extends EventEmitter {
     constructor(options) {
         super();
-        const {path = '/bin', profile, hostname = 'browser', filesystem = {}, permissions = {}, cwd = '/', onFsChange, useRealFilesystem = false} = options;
+        const {
+            path = '/bin',
+            profile,
+            motd,
+            command,
+            interactive = true,
+            subshell = false,
+            hostname = 'browser',
+            filesystem = {},
+            permissions = {},
+            cwd = '/',
+            onFsChange,
+            useRealFilesystem = false
+        } = options;
 
         this.context = new Context(Object.assign({}, options, {
             clearFn: this.clear.bind(this),
@@ -42,6 +55,12 @@ class Shell extends EventEmitter {
 
         this.context.setVar('PATH', path);
         this.context.setVar('HOST', hostname);
+        if (!subshell) {
+            const initialFlags = (interactive ? 'i' : '') + (command ? 'c' : '');
+            if (initialFlags) {
+                this.context.setVar('-', initialFlags);
+            }
+        }
         if (useRealFilesystem) {
             this.context.setNodeFilesystem(cwd);
         } else {
@@ -54,11 +73,18 @@ class Shell extends EventEmitter {
         this._loadBuiltinCommands(pathDirExisted);
 
         this._lastCode = 0;
+        this._subshell = subshell;
+        this._useRealFilesystem = useRealFilesystem;
+        this._profile = profile;
+        this._motd = motd;
+        this._initialCommand = command || null;
+        this._suppressMotd = Boolean(command);
 
-        if(profile) {
-            this._loadProfile(profile);
+        if (!subshell) {
+            this._initializing = true;
+            setTimeout(() => this._init(), 0);
         } else {
-            setTimeout(() => this.emit('status', Shell.STATUS_READY), 0);
+            this._initializing = false;
         }
     }
 
@@ -67,7 +93,7 @@ class Shell extends EventEmitter {
     }
 
     set lastCode(code) {
-        this.context.setVar('?', code);
+        this.context.setVar('?', String(code));
         this._lastCode = code;
     }
 
@@ -114,8 +140,117 @@ class Shell extends EventEmitter {
         }
     }
 
-    _loadProfile(profile) {
-        this.onCommand(`source ${profile}`);
+    suppressMotd() {
+        this._suppressMotd = true;
+        const flags = this.context.getVar('-');
+        if (!flags.includes('c')) {
+            this.context.setVar('-', flags + 'c');
+        }
+    }
+
+    async _init() {
+        try {
+            if (!this._suppressMotd && !this._initialCommand) {
+                await this._runMotd();
+            }
+            await this._loadProfile(this._profile);
+            if (this._initialCommand) {
+                await this.onCommand(this._initialCommand, false);
+                const flags = this.context.getVar('-');
+                if (flags.includes('c')) {
+                    this.context.setVar('-', flags.replace(/c/g, ''));
+                }
+            }
+        } finally {
+            this._initializing = false;
+            if (!this.destroyed) {
+                this.emit('status', Shell.STATUS_READY);
+            }
+        }
+    }
+
+    _hasHushlogin() {
+        if (this.context.fs.exists('.hushlogin')) return true;
+        const home = this.context.getVar('HOME');
+        if (home && this.context.fs.exists(`${home.replace(/\/$/, '')}/.hushlogin`)) return true;
+        return false;
+    }
+
+    async _runMotd() {
+        if (this._motd === false || this._hasHushlogin()) return;
+        if (typeof this._motd === 'string') {
+            await this._renderMotdPath(this._motd);
+            return;
+        }
+        if (!this._useRealFilesystem) {
+            if (this.context.fs.exists('/etc/update-motd.d')) {
+                await this._runMotdDir('/etc/update-motd.d');
+            }
+            if (this.context.fs.exists('/etc/motd')) {
+                await this._renderMotdPath('/etc/motd');
+            }
+        }
+    }
+
+    async _runMotdDir(dirPath) {
+        const dir = this.context.fs.getFileByPath(dirPath);
+        if (!dir || dir.constructor !== Object) return;
+        const entries = Object.keys(dir).sort();
+        const cleanDir = dirPath.endsWith('/') ? dirPath.slice(0, -1) : dirPath;
+        for (const name of entries) {
+            const fullPath = `${cleanDir}/${name}`;
+            const stat = this.context.fs.stat(fullPath);
+            if (!stat || stat.isDirectory) continue;
+            if (this.context.fs.isExecutable(fullPath)) {
+                await this.onCommand(fullPath, false);
+            }
+        }
+    }
+
+    async _renderMotdPath(motdPath) {
+        if (!this.context.fs.exists(motdPath)) return;
+        const stat = this.context.fs.stat(motdPath);
+        if (!stat) return;
+        if (stat.isDirectory) {
+            await this._runMotdDir(motdPath);
+            return;
+        }
+        const content = this.context.fs.getFileByPath(motdPath);
+        if (content === null || content === undefined) return;
+
+        if (typeof content === 'function') {
+            if (this.context.fs.isExecutable(motdPath)) {
+                await this.onCommand(motdPath, false);
+            }
+            return;
+        }
+
+        if (typeof content === 'string' && content.startsWith('#!')) {
+            if (this.context.fs.isExecutable(motdPath)) {
+                await this.onCommand(motdPath, false);
+            } else {
+                await this.onCommand(`source ${motdPath}`, false);
+            }
+            return;
+        }
+
+        let text = content.toString();
+        if (text.endsWith('\n')) text = text.slice(0, -1);
+        text.split(/\r?\n/).forEach(line => {
+            this.emit('stdOut', line);
+        });
+    }
+
+    async _loadProfile(profile) {
+        if (!this._useRealFilesystem && profile !== '/etc/profile' && this.context.fs.exists('/etc/profile')) {
+            const etcProfile = this.context.fs.getFileByPath('/etc/profile');
+            if (typeof etcProfile === 'string' && etcProfile.startsWith('#!')) {
+                await this.onCommand('source /etc/profile', false);
+            }
+        }
+        if (profile) {
+            await this.onCommand(`source ${profile}`, false);
+        }
     }
 
     onCommand(raw, events = true) {
@@ -160,7 +295,9 @@ class Shell extends EventEmitter {
             return;
         }
 
-        this.emit('status', Shell.STATUS_WORKING);
+        if (!this._initializing) {
+            this.emit('status', Shell.STATUS_WORKING);
+        }
 
         let args;
         try {
@@ -456,7 +593,8 @@ class Shell extends EventEmitter {
         const matches = part.matchAll(variableRegex);
         let match = matches.next();
         while (!match.done) {
-            const value = this.context.getVar(match.value[1]);
+            const varName = match.value[1] || match.value[2];
+            const value = this.context.getVar(varName);
             part = part.replace(new RegExp(Shell._escapeRegExp(match.value[0]), 'g'), String(value));
             match = matches.next();
         }
@@ -483,7 +621,8 @@ class Shell extends EventEmitter {
         const subshell = new global.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
-            permissions: this.context.fs.getRawPermissions()
+            permissions: this.context.fs.getRawPermissions(),
+            subshell: true
         });
         subshell.context.source(this.context);
 
@@ -532,7 +671,8 @@ class Shell extends EventEmitter {
         const subshell = new global.shell({
             cwd: this.context.fs.cwd,
             filesystem: this.context.fs.getRaw(),
-            permissions: this.context.fs.getRawPermissions()
+            permissions: this.context.fs.getRawPermissions(),
+            subshell: true
         });
         subshell.context.source(this.context);
         if (stdin !== undefined) subshell.stdin = stdin;
