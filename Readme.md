@@ -68,7 +68,9 @@ All [Shell options](#shell-options) are also accepted and forwarded directly to 
 | option             | required | default     | description |
 | ------             | -------- | -------     | ----------- |
 | path               | No       | `'/bin'`    | Path in which to look for (and register) built-in binaries |
-| profile            | No       |             | A script to run before user interactivity (see [scripts](#writing-scripts)) |
+| profile            | No       |             | A script to run before user interactivity (see [scripts](#writing-scripts)). If `/etc/profile` exists on the virtual filesystem, it is sourced first |
+| motd               | No       |             | Optional path to a Message of the Day file/script/directory, or `false` to disable. By default, executable scripts in `/etc/update-motd.d/` and `/etc/motd` are displayed before `profile` on interactive login unless `.hushlogin` exists or an initial `command` is run |
+| command            | No       | `null`      | An initial command string to run after `profile` loads (equivalent to `sh -c <cmd>` / `ssh host <cmd>`). Suppresses MOTD and sets `c` in `$-` during initialization |
 | hostname           | No       | `'browser'` | Hostname shown in the prompt |
 | filesystem         | No       | `{}`        | Object representing the virtual file system. Classes extending `Command` are treated as executables. Use [exportFileSystem](bin/Readme.md) to generate this from a real directory |
 | permissions        | No       | `{}`        | Map of virtual absolute paths to Unix mode bits (e.g. `{ '/bin/myscript.sh': 0o755 }`). Files without an entry default to `0o644`; function/class entries default to `0o755` |

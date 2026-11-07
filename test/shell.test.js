@@ -335,3 +335,223 @@ describe('. (dot) command', () => {
         expect(shell.context.getVar('GREETED')).toBe('yes');
     });
 });
+
+describe('MOTD, profile, and initial command startup chain', () => {
+    function bootShell(options) {
+        return new Promise((resolve) => {
+            const output = [];
+            const errors = [];
+            const shell = new Shell({ filesystem: {}, ...options });
+            shell.on('stdOut', (line) => output.push(line));
+            shell.on('stdErr', (line) => errors.push(line));
+            shell.once('status', (status) => {
+                resolve({ shell, output, errors, status });
+            });
+        });
+    }
+
+    it('prints static /etc/motd before sourcing profile', async () => {
+        const { output, shell } = await bootShell({
+            profile: '/home/.profile',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    motd: 'Welcome to the system!\nSecond MOTD line\n'
+                },
+                home: {
+                    '.profile': '#!/bin/brsh\nexport PROFILE_LOADED=1\necho "profile ran"'
+                }
+            }
+        });
+
+        expect(output).toEqual([
+            'Welcome to the system!',
+            'Second MOTD line',
+            'profile ran'
+        ]);
+        expect(shell.context.getVar('PROFILE_LOADED')).toBe('1');
+    });
+
+    it('runs executable scripts in /etc/update-motd.d in lexical order before /etc/motd and profile', async () => {
+        const { output } = await bootShell({
+            profile: '/home/.profile',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    'update-motd.d': {
+                        '20-second': '#!/bin/brsh\necho "motd-20"',
+                        '10-first': '#!/bin/brsh\necho "motd-10"',
+                        '30-disabled': '#!/bin/brsh\necho "motd-disabled"'
+                    },
+                    motd: 'static-motd'
+                },
+                home: {
+                    '.profile': '#!/bin/brsh\necho "profile-last"'
+                }
+            },
+            permissions: {
+                '/etc/update-motd.d/10-first': 0o755,
+                '/etc/update-motd.d/20-second': 0o755,
+                '/etc/update-motd.d/30-disabled': 0o644
+            }
+        });
+
+        expect(output).toEqual([
+            'motd-10',
+            'motd-20',
+            'static-motd',
+            'profile-last'
+        ]);
+    });
+
+    it('supports a script file at /etc/motd or custom motd option', async () => {
+        const { output } = await bootShell({
+            motd: '/home/.motd',
+            cwd: '/home',
+            filesystem: {
+                home: {
+                    '.motd': '#!/bin/brsh\necho "dynamic motd banner"'
+                }
+            }
+        });
+
+        expect(output).toEqual(['dynamic motd banner']);
+    });
+
+    it('suppresses MOTD when .hushlogin exists in cwd', async () => {
+        const { output, shell } = await bootShell({
+            profile: '/home/.profile',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    motd: 'Should not be shown'
+                },
+                home: {
+                    '.hushlogin': '',
+                    '.profile': '#!/bin/brsh\nexport HUSHED=yes'
+                }
+            }
+        });
+
+        expect(output).toEqual([]);
+        expect(shell.context.getVar('HUSHED')).toBe('yes');
+    });
+
+    it('suppresses MOTD when motd: false is set', async () => {
+        const { output } = await bootShell({
+            motd: false,
+            filesystem: {
+                etc: {
+                    motd: 'Should not be shown'
+                }
+            }
+        });
+
+        expect(output).toEqual([]);
+    });
+
+    it('sources /etc/profile before user profile', async () => {
+        const { output } = await bootShell({
+            profile: '/home/.profile',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    profile: '#!/bin/brsh\nexport ORDER="etc"'
+                },
+                home: {
+                    '.profile': '#!/bin/brsh\nexport ORDER="${ORDER}->user"\necho $ORDER'
+                }
+            }
+        });
+
+        expect(output).toEqual(['etc->user']);
+    });
+
+    it('skips MOTD when an initial command is provided, but still sources profile so aliases work', async () => {
+        const { output, shell } = await bootShell({
+            profile: '/home/.profile',
+            command: 'cv',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    'update-motd.d': {
+                        '00-info': '#!/bin/brsh\necho "MOTD INFO BANNER"'
+                    },
+                    motd: 'STATIC MOTD BANNER'
+                },
+                home: {
+                    '.profile': '#!/bin/brsh\nalias cv="echo rendering-cv"'
+                }
+            },
+            permissions: {
+                '/etc/update-motd.d/00-info': 0o755
+            }
+        });
+
+        expect(output).toEqual(['rendering-cv']);
+        expect(output).not.toContain('MOTD INFO BANNER');
+        expect(output).not.toContain('STATIC MOTD BANNER');
+        expect(shell.context.getVar('-')).toBe('i');
+    });
+
+    it('skips MOTD when suppressMotd() is called synchronously before init (like Terminal.onCommand)', async () => {
+        const output = [];
+        const shell = new Shell({
+            profile: '/home/.profile',
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    motd: 'STATIC MOTD BANNER'
+                },
+                home: {
+                    '.profile': '#!/bin/brsh\nalias cv="echo rendering-cv"'
+                }
+            }
+        });
+        shell.suppressMotd();
+        shell.on('stdOut', (line) => output.push(line));
+
+        await new Promise((resolve) => shell.once('status', resolve));
+        await shell.onCommand('cv');
+
+        expect(output).toEqual(['rendering-cv']);
+    });
+
+    it('sets c in $- during profile execution when an initial command is run', async () => {
+        const { output } = await bootShell({
+            profile: '/home/.profile',
+            command: 'echo "ran command"',
+            cwd: '/home',
+            filesystem: {
+                home: {
+                    '.profile': '#!/bin/brsh\ncase "$-" in\n  *c*) echo "non-motd mode" ;;\n  *) echo "motd mode" ;;\nesac'
+                }
+            }
+        });
+
+        expect(output).toEqual(['non-motd mode', 'ran command']);
+    });
+
+    it('does not re-run MOTD in subshells (pipes, command substitution, scripts)', async () => {
+        const { shell, output } = await bootShell({
+            cwd: '/home',
+            filesystem: {
+                etc: {
+                    motd: 'WELCOME_MOTD'
+                },
+                home: {
+                    'script.sh': '#!/bin/brsh\necho $(echo sub) | cat'
+                }
+            },
+            permissions: {
+                '/home/script.sh': 0o755
+            }
+        });
+
+        expect(output).toEqual(['WELCOME_MOTD']);
+
+        const res = await run(shell, '/home/script.sh');
+        expect(res.output).toEqual(['sub']);
+    });
+});
+
