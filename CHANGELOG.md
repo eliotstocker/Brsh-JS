@@ -1,3 +1,10 @@
+# [2.7.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.6.0...v2.7.0) (2026-11-07)
+
+
+### Features
+
+* add optional Web Binary Tool (wbt) WASM package manager ([#25](https://github.com/eliotstocker/Brsh-JS/issues/25)) ([3407c84](https://github.com/eliotstocker/Brsh-JS/commit/3407c84557f45c927778ca160e79ca057290e9e3))
+
 # [2.6.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.6...v2.6.0) (2026-11-07)
 
 
