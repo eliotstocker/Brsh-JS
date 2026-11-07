@@ -1,3 +1,10 @@
+# [2.6.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.6...v2.6.0) (2026-11-07)
+
+
+### Features
+
+* support POSIX MOTD startup chain and suppress MOTD on initial command ([#24](https://github.com/eliotstocker/Brsh-JS/issues/24)) ([fcb1ea4](https://github.com/eliotstocker/Brsh-JS/commit/fcb1ea49dedc2ec9050cb25cd4aba5aa24e23cdd))
+
 ## [2.5.6](https://github.com/eliotstocker/Brsh-JS/compare/v2.5.5...v2.5.6) (2026-11-04)
 
 
