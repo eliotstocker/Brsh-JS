@@ -960,8 +960,8 @@ describe('WBT interactive REPL mode', () => {
     });
 });
 
-describe('Direct .wasm binary in /bin (without wbt)', () => {
-    it('executes a raw WASI .wasm binary placed directly in /bin by bare command name', async () => {
+describe('Direct .wasm binary in /bin (without wbt) and standardized --help across all WASM bins', () => {
+    it('executes a raw WASI .wasm binary placed directly in /bin by bare command name and supports --help', async () => {
         const b64 = Buffer.from(MINIMAL_WASM_BYTES).toString('base64');
         const shell = await createShell({
             filesystem: {
@@ -977,6 +977,31 @@ describe('Direct .wasm binary in /bin (without wbt)', () => {
         // Bare command lookup in PATH ('myjq') automatically wraps the .wasm binary in WasmCommand!
         const { exitCode } = await run(shell, 'myjq');
         expect(exitCode).toBe(0);
+
+        const helpRes = await run(shell, 'myjq --help');
+        expect(helpRes.exitCode).toBe(0);
+        const helpText = helpRes.output.join('\n');
+        expect(helpText).toContain('Usage: myjq [options] [args...]');
+        expect(helpText).toContain('-h, --help');
+        expect(helpText).toContain('-V, --version');
+    });
+
+    it('provides a standardized --help format across registry, REPL, daemon, npm:<pkg>, and custom URL WASM binaries', async () => {
+        const shell = await createShell({ filesystem: { home: {} } });
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install jq python3 pglite npm:cowsay-wasm');
+        await run(shell, 'wbt install mywasm https://example.com/hello.wasm');
+
+        for (const bin of ['jq', 'python3', 'pglite', 'pg_ctl', 'cowsay-wasm', 'mywasm']) {
+            const { output, exitCode } = await run(shell, `${bin} --help`);
+            expect(exitCode).toBe(0);
+            const text = output.join('\n');
+            expect(text).toContain('wasm) —');
+            expect(text).toContain('Usage:');
+            expect(text).toContain('Options:');
+            expect(text).toContain('-h, --help');
+            expect(text).toContain('-V, --version');
+        }
     });
 });
 
