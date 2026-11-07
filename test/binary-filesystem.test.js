@@ -172,3 +172,102 @@ describe('FileSystem virtual symlinks', () => {
         expect(output.join('')).toBe('symlinked content');
     });
 });
+
+describe('BRFS Indexed Binary Container & Client-Side Persistence', () => {
+    const {
+        isBinaryContainer,
+        serializeBinaryFilesystem,
+        deserializeBinaryFilesystem,
+        FilesystemStorage
+    } = require('../lib/BinaryContainer.js');
+
+    it('serializes text files, binary files, directories, symlinks, and permissions without base64 bloat', () => {
+        const rawPngBytes = new Uint8Array(Buffer.from(RED_PNG_B64, 'base64'));
+        const fs = new FileSystem('/', {
+            readme: 'Hello BRFS!',
+            img: RED_PNG_DATA_URI,
+            bin: {
+                'script.sh': '#!/sh.js\necho "from container"'
+            }
+        }, {
+            '/readme': 0o644,
+            '/bin/script.sh': 0o755
+        });
+        fs.createSymlink('/readme', '/readme-link');
+
+        const containerBytes = fs.toBinaryContainer();
+        expect(containerBytes instanceof Uint8Array).toBe(true);
+        expect(isBinaryContainer(containerBytes)).toBe(true);
+        // Header magic "BRFS"
+        expect(String.fromCharCode(...containerBytes.subarray(0, 4))).toBe('BRFS');
+
+        // Deserialize back into a fresh FileSystem
+        const restored = new FileSystem('/', containerBytes);
+        expect(restored.getFileByPath('/readme')).toBe('Hello BRFS!');
+        expect(restored.getMode('/bin/script.sh')).toBe(0o755);
+        expect(restored.isSymlink('/readme-link')).toBe(true);
+        expect(restored.getFileByPath('/readme-link')).toBe('Hello BRFS!');
+
+        const restoredImg = restored.getFileByPath('/img');
+        expect(restoredImg instanceof BinaryFile).toBe(true);
+        expect(restoredImg.length).toBe(rawPngBytes.length);
+        expect(restoredImg.toString()).toBe(RED_PNG_DATA_URI);
+    });
+
+    it('boots a Shell directly from a serialized BRFS Uint8Array container and preserves executable permissions', async () => {
+        const shell1 = await createShell({
+            filesystem: {
+                home: {
+                    'hello.sh': '#!/sh.js\necho "persisted script works"',
+                    'notes.txt': 'initial note'
+                }
+            },
+            permissions: {
+                '/home/hello.sh': 0o755
+            }
+        });
+
+        await run(shell1, 'echo "updated note" > /home/notes.txt');
+        await run(shell1, 'ln -s /home/notes.txt /home/link.txt');
+
+        // Save snapshot using FilesystemStorage.save()
+        const snapshotBytes = await FilesystemStorage.save(shell1);
+        expect(isBinaryContainer(snapshotBytes)).toBe(true);
+
+        // Restore into a brand-new Shell instance by passing snapshotBytes as `filesystem`
+        const shell2 = await createShell({
+            filesystem: snapshotBytes
+        });
+
+        const noteRes = await run(shell2, 'cat /home/link.txt');
+        expect(noteRes.output.join('')).toBe('updated note');
+
+        const scriptRes = await run(shell2, '/home/hello.sh');
+        expect(scriptRes.exitCode).toBe(0);
+        expect(scriptRes.output).toContain('persisted script works');
+    });
+
+    it('supports createAutoSave onFsChange hook emitting binary snapshots', async () => {
+        const snapshots = [];
+        const onFsChange = FilesystemStorage.createAutoSave('test-key', (bytes) => {
+            snapshots.push(bytes);
+        });
+
+        const shell = await createShell({
+            filesystem: { home: {} },
+            onFsChange
+        });
+
+        await run(shell, 'echo "hello auto-save" > /home/auto.txt');
+        // Wait a microtask tick for debounced _triggerChange
+        await new Promise(r => setTimeout(r, 10));
+
+        expect(snapshots.length).toBeGreaterThan(0);
+        const latest = snapshots[snapshots.length - 1];
+        expect(isBinaryContainer(latest)).toBe(true);
+
+        const decoded = deserializeBinaryFilesystem(latest);
+        expect(decoded.filesystem.home['auto.txt']).toBe('hello auto-save');
+    });
+});
+

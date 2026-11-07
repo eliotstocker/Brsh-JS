@@ -791,6 +791,8 @@ Shell.STATUS_DESTROYED = 'DESTROYED';
 Shell.Command = Command;
 Shell.InteractiveCommand = InteractiveCommand;
 Shell.FS = BaseFileSystem;
+Shell.BinaryContainer = require('./lib/BinaryContainer');
+Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
 
 global.shell = Shell;
 module.exports = Shell;

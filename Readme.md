@@ -283,6 +283,52 @@ mytool
 wpt remove sqlite3
 ```
 
+## Binary Filesystem Container (`.brfs`) & Client-Side Persistence
+
+While `brsh` continues to support standard JS object filesystems (and legacy `.brsh` compressed JS bundles), it also supports an **Indexed Binary Container (`.brfs`)** format (`BRFS` magic header + JSON metadata/permissions index + contiguous raw binary payload with zero base64 overhead) as well as **IndexedDB client-side persistence**.
+
+### Exporting a `.brfs` Binary Container
+
+```shell
+# Standalone .brfs binary container (load via fetch('/fs.brfs').then(r => r.arrayBuffer()))
+exportFileSystem ./filesystem -o ./fs.brfs
+
+# Or generate a JS loader that fetches and mounts ./fs.brfs automatically
+exportFileSystem ./filesystem -o ./fs.js -v fs --binary
+```
+
+### Mounting & Snapshot Serialization
+
+```js
+// Pass a .brfs ArrayBuffer / Uint8Array directly to Shell or Terminal:
+const bytes = new Uint8Array(await (await fetch('/fs.brfs')).arrayBuffer());
+const shell = new Shell({ filesystem: bytes });
+
+// Export the live filesystem (including runtime changes, permissions, symlinks, and binaries) to a .brfs Uint8Array:
+const snapshot = shell.context.fs.toBinaryContainer();
+```
+
+### Client-Side Persistence (IndexedDB)
+
+Use `Shell.Storage` (`FilesystemStorage`) to persist user changes across page reloads in IndexedDB (with automatic `localStorage` fallback):
+
+```js
+const Shell = require('brsh');
+
+// Load previously saved filesystem state (or fall back to your initial .brfs / object filesystem)
+const savedFs = await Shell.Storage.load('my-app');
+
+const shell = new Shell({
+    filesystem: savedFs || initialFilesystem,
+    // Automatically persist changes (debounced) to IndexedDB whenever files or permissions change
+    onFsChange: Shell.Storage.createAutoSave('my-app', 300)
+});
+
+// Or manually save/clear at any time:
+await Shell.Storage.save(shell, 'my-app');
+await Shell.Storage.clear('my-app');
+```
+
 ## More Examples
 On my website I have extended the functionality adding some simple extra utilities such as an ANSI image viewer and a markdown parser based on open-source node CLI utilities.
 
