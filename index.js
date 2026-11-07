@@ -543,10 +543,24 @@ class Shell extends EventEmitter {
 
             throw new Error(`${command}: permission denied`);
         }
-        const cmd = this.context.getCommand(command);
+        let cmd = this.context.getCommand(command);
+        let cmdName = command;
+        if (!cmd && !command.endsWith('.wasm')) {
+            cmd = this.context.getCommand(`${command}.wasm`);
+            if (cmd) cmdName = `${command}.wasm`;
+        }
 
         if(!cmd) {
             throw new Error(`${command}: Command not found`);
+        }
+
+        const binLocation = `${this.path}/${cmdName}`;
+        if (this._isWasmFile(binLocation, cmd)) {
+            return WasmCommand.bind(null, binLocation);
+        }
+
+        if (typeof cmd === 'string' && cmd.startsWith('#!')) {
+            return ScriptCommand.bind(this, cmd);
         }
 
         return cmd;

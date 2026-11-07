@@ -1006,3 +1006,24 @@ describe('WPT interactive REPL mode', () => {
         shell.removeListener('stdOut', onOut);
     });
 });
+
+describe('Direct .wasm binary in /bin (without wpt)', () => {
+    it('executes a raw WASI .wasm binary placed directly in /bin by bare command name', async () => {
+        const b64 = Buffer.from(MINIMAL_WASM_BYTES).toString('base64');
+        const shell = await createShell({
+            filesystem: {
+                bin: {
+                    myjq: `data:application/wasm;base64,${b64}`
+                }
+            },
+            permissions: {
+                '/bin/myjq': 0o755
+            }
+        });
+
+        // Bare command lookup in PATH ('myjq') automatically wraps the .wasm binary in WasmCommand!
+        const { exitCode } = await run(shell, 'myjq');
+        expect(exitCode).toBe(0);
+    });
+});
+

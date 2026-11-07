@@ -114,6 +114,7 @@ const textLoaderPlugin = {
                 && !filename.endsWith('.bmp')
                 && !filename.endsWith('.webp')
                 && !filename.endsWith('.ico')
+                && !filename.endsWith('.wasm')
             ) {
                 const contents = await fs.promises.readFile(args.path, 'utf8');
                 return { contents, loader: 'text' };
@@ -140,7 +141,8 @@ esbuild.build({
         '.jpeg': 'binary',
         '.bmp': 'binary',
         '.webp': 'binary',
-        '.ico': 'binary'
+        '.ico': 'binary',
+        '.wasm': 'binary'
     },
     plugins: [
         textLoaderPlugin,

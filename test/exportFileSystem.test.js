@@ -137,6 +137,18 @@ describe('buildStructure', () => {
         const { permissions } = buildStructure(root);
         expect(permissions['/bin/tool.sh']).toBe(0o755);
     });
+
+    it('encodes .wasm files as data:application/wasm;base64 and strips .wasm extension', () => {
+        const sub = join(root, 'bin');
+        mkdirSync(sub);
+        const wasmBytes = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        writeFileSync(join(sub, 'jq.wasm'), wasmBytes);
+        chmodSync(join(sub, 'jq.wasm'), 0o755);
+        const { filesystem, permissions } = buildStructure(root);
+        expect(filesystem.bin).toHaveProperty('jq');
+        expect(filesystem.bin.jq).toBe(`data:application/wasm;base64,${wasmBytes.toString('base64')}`);
+        expect(permissions['/bin/jq']).toBe(0o755);
+    });
 });
 
 // ---------------------------------------------------------------------------
