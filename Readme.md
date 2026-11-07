@@ -208,43 +208,43 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 **Note:** when using [exportFileSystem](bin/Readme.md), do not give scripts a `.js` extension — that causes them to be loaded as JavaScript modules rather than script strings.
 
-## Web Package Tool (`wpt`) — Optional WASM Package Manager
+## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wpt` is an optional, APT-style package manager for `brsh` that lets users install and run WebAssembly packages (such as `pglite`, `sqlite3`, `assemblyscript` / `asc`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `pglite`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
 
-### Enabling `wpt`
+### Enabling `wbt`
 
 ```js
 // ESM
 import Terminal from 'brsh/terminal';
-import Wpt from 'brsh/wpt';
+import Wbt from 'brsh/wbt';
 
 const term = new Terminal({ el: document.body });
-term.cli.context.setCommand(Wpt);
+term.cli.context.setCommand(Wbt);
 ```
 
 ```js
 // CJS
 const Shell = require('brsh');
-const Wpt = require('brsh/wpt');
+const Wbt = require('brsh/wbt');
 
 const shell = new Shell({ filesystem: {} });
-shell.context.setCommand(Wpt);
+shell.context.setCommand(Wbt);
 ```
 
 ### Usage in the shell
 
 ```sh
 # List available or installed WASM packages
-wpt list
-wpt list --installed
+wbt list
+wbt list --installed
 
 # Search and inspect packages
-wpt search postgres
-wpt show pglite
+wbt search postgres
+wbt show pglite
 
 # Install curated WASM packages into /bin
-wpt install pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+wbt install pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
 
 # Run PGlite as a one-shot query, interactive REPL, or a background server daemon!
 pglite -d /home/pgdata -c "CREATE TABLE users (id INT, name TEXT); INSERT INTO users VALUES (1, 'Ada');"
@@ -252,7 +252,7 @@ pglite # launches interactive PostgreSQL REPL
 
 # Start a PGlite background daemon on localhost:5432 and query it via HTTP (curl / fetch) or psql
 pg_ctl start -D /home/pgdata -p 5432
-wpt services
+wbt services
 curl -s -X POST -d "SELECT * FROM users;" http://localhost:5432/query
 psql -p 5432 -c "SELECT * FROM users;"
 pg_ctl stop -p 5432
@@ -275,12 +275,12 @@ dot -Tsvg graph.dot -o graph.svg
 ffmpeg -i input.mp4 output.webm
 
 # Install any generic Emscripten / WASI package or custom .wasm URL at runtime (no custom wrapper needed!)
-wpt install npm:cowsay-wasm
-wpt install mytool https://example.com/mytool.wasm
+wbt install npm:cowsay-wasm
+wbt install mytool https://example.com/mytool.wasm
 mytool
 
-# Remove an installed package
-wpt remove sqlite3
+# Remove an installed binary
+wbt remove sqlite3
 ```
 
 ## Binary Filesystem Container (`.brfs`) & Client-Side Persistence

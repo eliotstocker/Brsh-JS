@@ -15,10 +15,10 @@
       "require": "./dist/terminal.min.js",
       "default": "./dist/terminal.min.js"
     },
-    "./wpt": {
-      "import": "./dist/wpt.es.js",
-      "require": "./lib/wpt/index.js",
-      "default": "./dist/wpt.min.js"
+    "./wbt": {
+      "import": "./dist/wbt.es.js",
+      "require": "./lib/wbt/index.js",
+      "default": "./dist/wbt.min.js"
     }
   },
   "bin": {
@@ -29,10 +29,10 @@
     "start": "node bin/exportFileSystem.js ./demo/filesystem -o ./demo/fs.js -v fs && vite --config vite.config.js demo/",
     "build:demofs": "node bin/exportFileSystem.js ./demo/filesystem -o ./dist-demo/fs.js -v fs",
     "build:demo": "vite build --config vite.config.demo.js && npm run build:demofs",
-    "build": "npm run build:shell && npm run build:terminal && npm run build:wpt",
+    "build": "npm run build:shell && npm run build:terminal && npm run build:wbt",
     "build:shell": "vite build --config vite.config.shell.js",
     "build:terminal": "vite build --config vite.config.terminal.js",
-    "build:wpt": "vite build --config vite.config.wpt.js",
+    "build:wbt": "vite build --config vite.config.wbt.js",
     "shell": "node bin/brsh-shell.js",
     "test": "vitest run",
     "test:watch": "vitest",

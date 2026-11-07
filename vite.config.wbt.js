@@ -8,10 +8,10 @@ export default defineConfig({
     ],
     build: {
         lib: {
-            entry: path.resolve(import.meta.dirname, 'lib/wpt/index.js'),
-            name: 'Wpt',
+            entry: path.resolve(import.meta.dirname, 'lib/wbt/index.js'),
+            name: 'Wbt',
             formats: ['es', 'iife'],
-            fileName: (format) => format === 'iife' ? 'wpt.min.js' : 'wpt.es.js'
+            fileName: (format) => format === 'iife' ? 'wbt.min.js' : 'wbt.es.js'
         },
         minify: true,
         sourcemap: true,

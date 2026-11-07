@@ -3,9 +3,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
-const Wpt = require('../lib/wpt/index.js');
-const { daemonManager } = require('../lib/wpt/index.js');
-const { pgliteInstances } = require('../lib/wpt/packages/pglite.js');
+const Wbt = require('../lib/wbt/index.js');
+const { daemonManager } = require('../lib/wbt/index.js');
+const { pgliteInstances } = require('../lib/wbt/packages/pglite.js');
 
 // Minimal valid WASM binary that exits cleanly with 0 via _start:
 // (module (func (export "_start")))
@@ -503,8 +503,8 @@ function createMockEmscriptenCowsay() {
     };
 }
 
-function createTestWpt() {
-    return Wpt.configure({
+function createTestWbt() {
+    return Wbt.configure({
         moduleLoader: async (pkgName) => {
             if (pkgName === 'sql.js' || pkgName === 'sqlite3') return createMockSqlJs();
             if (pkgName === '@electric-sql/pglite' || pkgName === 'pglite') return createMockPglite();
@@ -554,38 +554,38 @@ function createTestWpt() {
 // Tests
 // ============================================================================
 
-describe('WPT optional package behavior', () => {
+describe('WBT optional package behavior', () => {
     it('is NOT included in a default Shell instance unless registered', async () => {
         const shell = await createShell();
-        const { errors, exitCode } = await run(shell, 'wpt list');
+        const { errors, exitCode } = await run(shell, 'wbt list');
         expect(exitCode).toBe(1);
         expect(errors.join(' ')).toMatch(/Command not found/i);
     });
 
-    it('can be registered into a Shell instance via shell.context.setCommand(Wpt)', async () => {
+    it('can be registered into a Shell instance via shell.context.setCommand(Wbt)', async () => {
         const shell = await createShell();
-        shell.context.setCommand(createTestWpt());
-        const { output, exitCode } = await run(shell, 'wpt --version');
+        shell.context.setCommand(createTestWbt());
+        const { output, exitCode } = await run(shell, 'wbt --version');
         expect(exitCode).toBe(0);
-        expect(output.join('\n')).toContain('wpt 1.1.0');
+        expect(output.join('\n')).toContain('wbt 1.1.0');
     });
 });
 
-describe('WPT CLI subcommands (list, search, show, install, remove, update)', () => {
+describe('WBT CLI subcommands (list, search, show, install, remove, update)', () => {
     let shell;
 
     beforeEach(async () => {
         await daemonManager.stopAll();
         pgliteInstances.clear();
         shell = await createShell({ filesystem: { home: {} } });
-        shell.context.setCommand(createTestWpt());
+        shell.context.setCommand(createTestWbt());
     });
 
     it('shows help when run with no arguments or --help', async () => {
-        const { output, exitCode } = await run(shell, 'wpt');
+        const { output, exitCode } = await run(shell, 'wbt');
         expect(exitCode).toBe(0);
         const text = output.join('\n');
-        expect(text).toContain('Web Package Tool');
+        expect(text).toContain('Web Binary Tool');
         expect(text).toContain('pglite');
         expect(text).toContain('sqlite3');
         expect(text).toContain('assemblyscript');
@@ -596,55 +596,55 @@ describe('WPT CLI subcommands (list, search, show, install, remove, update)', ()
         expect(text).toContain('ffmpeg');
     });
 
-    it('lists available packages with `wpt list` and installed packages with `wpt list --installed`', async () => {
-        const allRes = await run(shell, 'wpt list');
+    it('lists available packages with `wbt list` and installed packages with `wbt list --installed`', async () => {
+        const allRes = await run(shell, 'wbt list');
         expect(allRes.exitCode).toBe(0);
         expect(allRes.output.join('\n')).toContain('pglite/wasm');
         expect(allRes.output.join('\n')).toContain('sqlite3/wasm');
         expect(allRes.output.join('\n')).toContain('assemblyscript/wasm');
 
-        const emptyInstalled = await run(shell, 'wpt list --installed');
+        const emptyInstalled = await run(shell, 'wbt list --installed');
         expect(emptyInstalled.exitCode).toBe(0);
         expect(emptyInstalled.output).toEqual(['Listing...']);
 
-        await run(shell, 'wpt install sqlite3');
-        const afterInstall = await run(shell, 'wpt list --installed');
+        await run(shell, 'wbt install sqlite3');
+        const afterInstall = await run(shell, 'wbt list --installed');
         expect(afterInstall.output.join('\n')).toContain('sqlite3/wasm');
         expect(afterInstall.output.join('\n')).toContain('[installed]');
     });
 
-    it('searches packages by keyword with `wpt search`', async () => {
-        const { output, exitCode } = await run(shell, 'wpt search postgres');
+    it('searches packages by keyword with `wbt search`', async () => {
+        const { output, exitCode } = await run(shell, 'wbt search postgres');
         expect(exitCode).toBe(0);
         expect(output.join('\n')).toContain('pglite/wasm');
         expect(output.join('\n')).not.toContain('lua/wasm');
     });
 
-    it('shows detailed package metadata with `wpt show`', async () => {
-        const { output, exitCode } = await run(shell, 'wpt show pglite');
+    it('shows detailed package metadata with `wbt show`', async () => {
+        const { output, exitCode } = await run(shell, 'wbt show pglite');
         expect(exitCode).toBe(0);
         const text = output.join('\n');
         expect(text).toContain('Package: pglite');
         expect(text).toContain('State: not installed');
         expect(text).toContain('Binary: pglite');
 
-        await run(shell, 'wpt install pglite');
-        const afterShow = await run(shell, 'wpt show pglite');
+        await run(shell, 'wbt install pglite');
+        const afterShow = await run(shell, 'wbt show pglite');
         expect(afterShow.output.join('\n')).toContain('State: installed');
     });
 
     it('returns an error when installing an unknown package', async () => {
-        const { errors, exitCode } = await run(shell, 'wpt install nonexistent-wasm-pkg');
+        const { errors, exitCode } = await run(shell, 'wbt install nonexistent-wasm-pkg');
         expect(exitCode).toBe(100);
         expect(errors.join(' ')).toContain('Unable to locate package nonexistent-wasm-pkg');
     });
 
     it('removes an installed package and unregisters its binary from /bin', async () => {
-        await run(shell, 'wpt install sqlite3');
+        await run(shell, 'wbt install sqlite3');
         const check1 = await run(shell, 'which sqlite3');
         expect(check1.output.join('')).toContain('/bin/sqlite3');
 
-        const rmRes = await run(shell, 'wpt remove sqlite3');
+        const rmRes = await run(shell, 'wbt remove sqlite3');
         expect(rmRes.exitCode).toBe(0);
         expect(rmRes.output.join('\n')).toContain('Removing sqlite3');
 
@@ -653,31 +653,31 @@ describe('WPT CLI subcommands (list, search, show, install, remove, update)', ()
         expect(check2.errors.join(' ')).toMatch(/Command not found/i);
     });
 
-    it('updates remote sources with `wpt update`', async () => {
-        const { output, exitCode } = await run(shell, 'wpt update');
+    it('updates remote sources with `wbt update`', async () => {
+        const { output, exitCode } = await run(shell, 'wbt update');
         expect(exitCode).toBe(0);
         expect(output.join('\n')).toContain('Reading package lists... Done');
 
-        const showCustom = await run(shell, 'wpt show custompkg');
+        const showCustom = await run(shell, 'wbt show custompkg');
         expect(showCustom.exitCode).toBe(0);
         expect(showCustom.output.join('\n')).toContain('Remote registry test package');
     });
 
-    it('restores installed commands from /var/lib/wpt/installed.json via Wpt.restoreInstalled', async () => {
-        await run(shell, 'wpt install sqlite3');
+    it('restores installed commands from /var/lib/wbt/installed.json via Wbt.restoreInstalled', async () => {
+        await run(shell, 'wbt install sqlite3');
         const rawFs = shell.context.fs.getRaw();
         const rawPerms = shell.context.fs.getRawPermissions();
 
-        const savedInstalledJson = rawFs.var.lib.wpt['installed.json'];
+        const savedInstalledJson = rawFs.var.lib.wbt['installed.json'];
         const shell2 = await createShell({
             filesystem: {
-                var: { lib: { wpt: { 'installed.json': savedInstalledJson } } }
+                var: { lib: { wbt: { 'installed.json': savedInstalledJson } } }
             },
             permissions: rawPerms
         });
-        const TestWpt = createTestWpt();
-        shell2.context.setCommand(TestWpt);
-        TestWpt.restoreInstalled(shell2);
+        const TestWbt = createTestWbt();
+        shell2.context.setCommand(TestWbt);
+        TestWbt.restoreInstalled(shell2);
 
         const { output, exitCode } = await run(shell2, 'sqlite3 --version');
         expect(exitCode).toBe(0);
@@ -685,13 +685,13 @@ describe('WPT CLI subcommands (list, search, show, install, remove, update)', ()
     });
 });
 
-describe('WPT SQLite3 WASM package (`sqlite3` / `sqlite`)', () => {
+describe('WBT SQLite3 WASM package (`sqlite3` / `sqlite`)', () => {
     let shell;
 
     beforeEach(async () => {
         shell = await createShell({ filesystem: { home: {} } });
-        shell.context.setCommand(createTestWpt());
-        await run(shell, 'wpt install sqlite');
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install sqlite');
     });
 
     it('executes one-shot SQL queries and formats output', async () => {
@@ -730,15 +730,15 @@ describe('WPT SQLite3 WASM package (`sqlite3` / `sqlite`)', () => {
     });
 });
 
-describe('WPT PGlite WASM package (`pglite`, `psql`, `pg_ctl` & background server daemon)', () => {
+describe('WBT PGlite WASM package (`pglite`, `psql`, `pg_ctl` & background server daemon)', () => {
     let shell;
 
     beforeEach(async () => {
         await daemonManager.stopAll();
         pgliteInstances.clear();
         shell = await createShell({ filesystem: { home: {} } });
-        shell.context.setCommand(createTestWpt());
-        await run(shell, 'wpt install pglite');
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install pglite');
     });
 
     it('runs one-shot SQL queries with `pglite -c` or positional SQL', async () => {
@@ -774,8 +774,8 @@ describe('WPT PGlite WASM package (`pglite`, `psql`, `pg_ctl` & background serve
         expect(startRes.exitCode).toBe(0);
         expect(startRes.output.join('\n')).toContain('server started');
 
-        // Verify `wpt services` lists the running daemon
-        const svcRes = await run(shell, 'wpt services');
+        // Verify `wbt services` lists the running daemon
+        const svcRes = await run(shell, 'wbt services');
         expect(svcRes.exitCode).toBe(0);
         expect(svcRes.output.join('\n')).toContain('pglite');
         expect(svcRes.output.join('\n')).toContain('5432');
@@ -807,7 +807,7 @@ describe('WPT PGlite WASM package (`pglite`, `psql`, `pg_ctl` & background serve
     });
 });
 
-describe('WPT AssemblyScript compiler (`asc`) and JIT/AOT runtime (`asrun` / `asnode`)', () => {
+describe('WBT AssemblyScript compiler (`asc`) and JIT/AOT runtime (`asrun` / `asnode`)', () => {
     let shell;
 
     beforeEach(async () => {
@@ -819,8 +819,8 @@ describe('WPT AssemblyScript compiler (`asc`) and JIT/AOT runtime (`asrun` / `as
                 }
             }
         });
-        shell.context.setCommand(createTestWpt());
-        await run(shell, 'wpt install assemblyscript');
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install assemblyscript');
     });
 
     it('compiles AssemblyScript source files in the brsh filesystem to executable .wasm binaries', async () => {
@@ -851,7 +851,7 @@ describe('WPT AssemblyScript compiler (`asc`) and JIT/AOT runtime (`asrun` / `as
     });
 });
 
-describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & Generic Runtime', () => {
+describe('WBT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & Generic Runtime', () => {
     let shell;
 
     beforeEach(async () => {
@@ -865,18 +865,18 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
                 }
             }
         });
-        shell.context.setCommand(createTestWpt());
+        shell.context.setCommand(createTestWbt());
     });
 
     it('processes JSON files and piped JSON with `jq`', async () => {
-        await run(shell, 'wpt install jq');
+        await run(shell, 'wbt install jq');
         const res = await run(shell, 'cat /home/data.json | jq -r ".user.name"');
         expect(res.exitCode).toBe(0);
         expect(res.output).toContain('Ada');
     });
 
     it('runs Python 3 scripts and `-c` expressions with `python3` / `python`', async () => {
-        await run(shell, 'wpt install python3');
+        await run(shell, 'wbt install python3');
         const scriptRes = await run(shell, 'python3 /home/hello.py');
         expect(scriptRes.exitCode).toBe(0);
         expect(scriptRes.output).toContain('Hello from Pyodide!');
@@ -887,14 +887,14 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
     });
 
     it('runs analytical SQL queries with `duckdb`', async () => {
-        await run(shell, 'wpt install duckdb');
+        await run(shell, 'wbt install duckdb');
         const res = await run(shell, 'duckdb -c "SELECT 100 AS total"');
         expect(res.exitCode).toBe(0);
         expect(res.output.join('\n')).toContain('100');
     });
 
     it('compiles Graphviz DOT files to SVG with `dot` (`graphviz` package)', async () => {
-        await run(shell, 'wpt install graphviz');
+        await run(shell, 'wbt install graphviz');
         const res = await run(shell, 'dot -Tsvg /home/graph.dot -o /home/graph.svg');
         expect(res.exitCode).toBe(0);
         expect(shell.context.fs.exists('/home/graph.svg')).toBe(true);
@@ -902,14 +902,14 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
     });
 
     it('transcodes media files in the brsh filesystem with `ffmpeg`', async () => {
-        await run(shell, 'wpt install ffmpeg');
+        await run(shell, 'wbt install ffmpeg');
         const res = await run(shell, 'ffmpeg -i /home/input.mp4 /home/output.webm');
         expect(res.exitCode).toBe(0);
         expect(shell.context.fs.exists('/home/output.webm')).toBe(true);
     });
 
-    it('wraps arbitrary Emscripten / NPM packages at runtime without a custom adapter (`wpt install npm:<pkg>`)', async () => {
-        const installRes = await run(shell, 'wpt install npm:cowsay-wasm');
+    it('wraps arbitrary Emscripten / NPM packages at runtime without a custom adapter (`wbt install npm:<pkg>`)', async () => {
+        const installRes = await run(shell, 'wbt install npm:cowsay-wasm');
         expect(installRes.exitCode).toBe(0);
 
         const runRes = await run(shell, 'cowsay-wasm Hello Generic WASM');
@@ -917,8 +917,8 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
         expect(runRes.output.join('\n')).toContain('< Hello Generic WASM >');
     });
 
-    it('installs and runs a custom .wasm binary from a URL (`wpt install <name> <url>`)', async () => {
-        const installRes = await run(shell, 'wpt install mywasm https://example.com/hello.wasm');
+    it('installs and runs a custom .wasm binary from a URL (`wbt install <name> <url>`)', async () => {
+        const installRes = await run(shell, 'wbt install mywasm https://example.com/hello.wasm');
         expect(installRes.exitCode).toBe(0);
         expect(installRes.output.join('\n')).toContain('Setting up mywasm');
 
@@ -926,8 +926,8 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
         expect(execRes.exitCode).toBe(0);
     });
 
-    it('supports `wpt run <pkg> [args...]` without permanently installing the binary', async () => {
-        const runRes = await run(shell, 'wpt run quickjs -e "21 * 2"');
+    it('supports `wbt run <pkg> [args...]` without permanently installing the binary', async () => {
+        const runRes = await run(shell, 'wbt run quickjs -e "21 * 2"');
         expect(runRes.exitCode).toBe(0);
         expect(runRes.output).toContain('42');
 
@@ -936,15 +936,15 @@ describe('WPT Curated WASM Tools (`jq`, `python3`, `duckdb`, `dot`, `ffmpeg`) & 
     });
 });
 
-describe('WPT interactive REPL mode', () => {
+describe('WBT interactive REPL mode', () => {
     let shell;
 
     beforeEach(async () => {
         await daemonManager.stopAll();
         pgliteInstances.clear();
         shell = await createShell({ filesystem: { home: {} } });
-        shell.context.setCommand(createTestWpt());
-        await run(shell, 'wpt install sqlite3 pglite');
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install sqlite3 pglite');
     });
 
     it('enters interactive REPL mode when `sqlite3` is invoked with no query and evaluates keystrokes until .exit', async () => {
@@ -1007,7 +1007,7 @@ describe('WPT interactive REPL mode', () => {
     });
 });
 
-describe('Direct .wasm binary in /bin (without wpt)', () => {
+describe('Direct .wasm binary in /bin (without wbt)', () => {
     it('executes a raw WASI .wasm binary placed directly in /bin by bare command name', async () => {
         const b64 = Buffer.from(MINIMAL_WASM_BYTES).toString('base64');
         const shell = await createShell({
