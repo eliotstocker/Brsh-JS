@@ -12,14 +12,10 @@ const localCommands = require('./lib/local');
 const events = require('events');
 const BaseFileSystem = require('./lib/BaseFileSystem');
 
-<<<<<<< HEAD
-const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
-=======
 const BinaryContainer = require('./lib/BinaryContainer');
 const { isAsyncFilesystemSource, resolveFilesystemSource } = BinaryContainer;
 
-const variableRegex = /\${?([\w\d]+)}?/g;
->>>>>>> a7cdd96 (feat: support passing .brfs URLs, Promises, and gzipped containers directly to Shell/Terminal)
+const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
 
 
 const EventEmitter = events.EventEmitter || events.default || events;
@@ -884,6 +880,8 @@ Shell.STATUS_DESTROYED = 'DESTROYED';
 
 Shell.Command = Command;
 Shell.InteractiveCommand = InteractiveCommand;
+Shell.WasmCommand = WasmCommand;
+Shell.ReplCommand = require('./lib/ReplCommand');
 Shell.FS = BaseFileSystem;
 Shell.BinaryContainer = require('./lib/BinaryContainer');
 Shell.Storage = Shell.BinaryContainer.FilesystemStorage;

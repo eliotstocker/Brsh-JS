@@ -995,13 +995,14 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
         expect(helpText).toContain('-V, --version');
     });
 
-    it('provides a standardized --help format across registry, REPL, daemon, npm:<pkg>, and custom URL WASM binaries and extracts CLI options at runtime', async () => {
+    it('passes through native --help when a WASM binary implements it and falls back to standardized --help otherwise', async () => {
         const shell = await createShell({ filesystem: { home: {} } });
         shell.context.setCommand(createTestWbt());
         await run(shell, 'wbt install jq python3 pglite npm:cowsay-wasm');
         await run(shell, 'wbt install mywasm https://example.com/hello.wasm');
 
-        for (const bin of ['jq', 'python3', 'pglite', 'pg_ctl', 'cowsay-wasm', 'mywasm']) {
+        // 1. Binaries without their own `--help` get the standardized fallback `--help` screen
+        for (const bin of ['python3', 'pglite', 'pg_ctl', 'cowsay-wasm', 'mywasm']) {
             const { output, exitCode } = await run(shell, `${bin} --help`);
             expect(exitCode).toBe(0);
             const text = output.join('\n');
@@ -1012,13 +1013,16 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
             expect(text).toContain('-V, --version');
         }
 
-        // Verify `jq --help` extracts its CLI options at runtime from the WASM module's `--help` output
-        const jqHelp = (await run(shell, 'jq --help')).output.join('\n');
+        // 2. `jq` implements its own `--help` in main(args, io) -> passed through verbatim!
+        const jqRes = await run(shell, 'jq --help');
+        expect(jqRes.exitCode).toBe(0);
+        const jqHelp = jqRes.output.join('\n');
+        expect(jqHelp).toContain('jq - commandline JSON processor [version 1.7.1]');
         expect(jqHelp).toContain('Usage: jq [options] <jq filter> [file...]');
         expect(jqHelp).toContain('-r, --raw-output');
         expect(jqHelp).toContain('-c, --compact-output');
 
-        // Verify `mywasm --help` introspects the compiled .wasm binary exports at runtime
+        // 3. `mywasm --help` introspects the compiled .wasm binary exports at runtime
         const mywasmHelp = (await run(shell, 'mywasm --help')).output.join('\n');
         expect(mywasmHelp).toContain('WASM Exports: _start');
     });
