@@ -646,6 +646,9 @@ class Shell extends EventEmitter {
 
         const binLocation = `${this.path}/${cmdName}`;
         if (this._isWasmFile(binLocation, cmd)) {
+            if (!this.context.fs.isExecutable(binLocation)) {
+                throw new Error(`${command}: permission denied`);
+            }
             return WasmCommand.bind(null, binLocation);
         }
 
@@ -872,6 +875,30 @@ class Shell extends EventEmitter {
     static _escapeRegExp(string) {
         return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
+
+    /**
+     * Asynchronously creates and boots a Shell instance.
+     * Pre-resolves any async filesystem sources (URLs, Promises, .brfs containers, or IndexedDB)
+     * before returning the fully initialized shell.
+     */
+    static async create(options = {}) {
+        let { filesystem, permissions, ...rest } = options;
+        if (isAsyncFilesystemSource(filesystem) || (filesystem && typeof filesystem === 'object' && isAsyncFilesystemSource(filesystem.filesystem))) {
+            const resolved = await resolveFilesystemSource(filesystem, permissions);
+            filesystem = resolved.filesystem;
+            permissions = resolved.permissions;
+        }
+        const shell = new Shell(Object.assign({}, rest, { filesystem, permissions }));
+        await shell.ready;
+        return shell;
+    }
+
+    /**
+     * Helper to create a Shell directly from a .brfs container (URL, Uint8Array, or Promise).
+     */
+    static async fromContainer(source, options = {}) {
+        return Shell.create(Object.assign({}, options, { filesystem: source }));
+    }
 }
 
 Shell.STATUS_READY = 'READY';
@@ -881,6 +908,7 @@ Shell.STATUS_DESTROYED = 'DESTROYED';
 Shell.Command = Command;
 Shell.InteractiveCommand = InteractiveCommand;
 Shell.WasmCommand = WasmCommand;
+Shell.createWasmCommand = WasmCommand.createGenericWasmCommand || WasmCommand.createCommand;
 Shell.ReplCommand = require('./lib/ReplCommand');
 Shell.FS = BaseFileSystem;
 Shell.BinaryContainer = require('./lib/BinaryContainer');

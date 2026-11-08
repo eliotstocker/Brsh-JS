@@ -4,8 +4,6 @@ import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Wbt = require('../lib/wbt/index.js');
-const { daemonManager } = require('../lib/wbt/index.js');
-const { pgliteInstances } = require('../lib/wbt/packages/pglite.js');
 const { wllamaInstances } = require('../lib/wbt/packages/wllama.js');
 
 // Minimal valid WASM binary that exits cleanly with 0 via _start:
@@ -122,115 +120,6 @@ function createMockSqlJs() {
             return 0;
         }
     };
-}
-
-/**
- * In-memory mock implementation of @electric-sql/pglite for deterministic tests.
- */
-function createMockPglite() {
-    class MockPGlite {
-        constructor(dataDir) {
-            this.dataDir = dataDir || 'memory://';
-            this._tables = {};
-            this.waitReady = Promise.resolve();
-        }
-
-        static async create(dataDir) {
-            return new MockPGlite(dataDir);
-        }
-
-        async exec(sql) {
-            const results = [];
-            const statements = sql
-                .split(';')
-                .map(s => s.trim())
-                .filter(Boolean);
-
-            for (const stmt of statements) {
-                if (/FROM\s+pg_catalog\.pg_tables/i.test(stmt)) {
-                    const rows = Object.keys(this._tables).map(t => ({
-                        schema: 'public',
-                        name: t,
-                        owner: 'postgres'
-                    }));
-                    results.push({
-                        fields: [{ name: 'schema' }, { name: 'name' }, { name: 'owner' }],
-                        rows
-                    });
-                    continue;
-                }
-
-                const createMatch = stmt.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.+)\)/i);
-                if (createMatch) {
-                    const tbl = createMatch[1];
-                    const cols = createMatch[2].split(',').map(c => c.trim().split(/\s+/)[0]);
-                    this._tables[tbl] = { columns: cols, rows: [] };
-                    results.push({ fields: [], rows: [], affectedRows: 0 });
-                    continue;
-                }
-
-                const insertMatch = stmt.match(/^INSERT\s+INTO\s+(\w+)(?:\s*\(([^)]+)\))?\s+VALUES\s*\((.+)\)/i);
-                if (insertMatch) {
-                    const tbl = insertMatch[1];
-                    if (!this._tables[tbl]) throw new Error(`relation "${tbl}" does not exist`);
-                    const vals = insertMatch[3].split(',').map(v => {
-                        const s = v.trim();
-                        if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
-                            return s.slice(1, -1);
-                        }
-                        const n = Number(s);
-                        return Number.isNaN(n) ? s : n;
-                    });
-                    const rowObj = {};
-                    this._tables[tbl].columns.forEach((c, idx) => { rowObj[c] = vals[idx]; });
-                    this._tables[tbl].rows.push(rowObj);
-                    results.push({ fields: [], rows: [], affectedRows: 1 });
-                    continue;
-                }
-
-                const selectTableMatch = stmt.match(/^SELECT\s+(.+)\s+FROM\s+(\w+)/i);
-                if (selectTableMatch) {
-                    const tbl = selectTableMatch[2];
-                    if (!this._tables[tbl]) throw new Error(`relation "${tbl}" does not exist`);
-                    const tableObj = this._tables[tbl];
-                    results.push({
-                        fields: tableObj.columns.map(c => ({ name: c })),
-                        rows: tableObj.rows
-                    });
-                    continue;
-                }
-
-                const selectExprMatch = stmt.match(/^SELECT\s+(.+)/i);
-                if (selectExprMatch) {
-                    const exprs = selectExprMatch[1].split(',').map(e => e.trim());
-                    const fields = [];
-                    const rowObj = {};
-                    for (const expr of exprs) {
-                        const asMatch = expr.match(/^(.+?)\s+AS\s+(\w+)$/i);
-                        const rawExpr = asMatch ? asMatch[1].trim() : expr;
-                        const colName = asMatch ? asMatch[2] : '?column?';
-                        fields.push({ name: colName });
-                        if ((rawExpr.startsWith("'") && rawExpr.endsWith("'")) || (rawExpr.startsWith('"') && rawExpr.endsWith('"'))) {
-                            rowObj[colName] = rawExpr.slice(1, -1);
-                        } else if (/^[\d\s+\-*/%()]+$/.test(rawExpr)) {
-                            rowObj[colName] = Function(`return (${rawExpr})`)();
-                        } else {
-                            rowObj[colName] = rawExpr;
-                        }
-                    }
-                    results.push({ fields, rows: [rowObj] });
-                    continue;
-                }
-
-                throw new Error(`syntax error at or near "${stmt}"`);
-            }
-            return results;
-        }
-
-        async close() {}
-    }
-
-    return { PGlite: MockPGlite };
 }
 
 /**
@@ -606,7 +495,6 @@ function createTestWbt() {
     return Wbt.configure({
         moduleLoader: async (pkgName) => {
             if (pkgName === 'sql.js' || pkgName === 'sqlite3') return createMockSqlJs();
-            if (pkgName === '@electric-sql/pglite' || pkgName === 'pglite') return createMockPglite();
             if (pkgName === '@wllama/wllama' || pkgName === 'wllama') return createMockWllama();
             if (pkgName === 'assemblyscript/asc' || pkgName === 'assemblyscript') return createMockAsc();
             if (pkgName === 'quickjs-emscripten' || pkgName === 'quickjs') return createMockQuickJs();
@@ -675,8 +563,6 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
     let shell;
 
     beforeEach(async () => {
-        await daemonManager.stopAll();
-        pgliteInstances.clear();
         shell = await createShell({ filesystem: { home: {} } });
         shell.context.setCommand(createTestWbt());
     });
@@ -686,7 +572,6 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         expect(exitCode).toBe(0);
         const text = output.join('\n');
         expect(text).toContain('Web Binary Tool');
-        expect(text).toContain('pglite');
         expect(text).toContain('sqlite3');
         expect(text).toContain('assemblyscript');
         expect(text).toContain('jq');
@@ -699,9 +584,9 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
     it('lists available packages with `wbt list` and installed packages with `wbt list --installed`', async () => {
         const allRes = await run(shell, 'wbt list');
         expect(allRes.exitCode).toBe(0);
-        expect(allRes.output.join('\n')).toContain('pglite/wasm');
         expect(allRes.output.join('\n')).toContain('sqlite3/wasm');
         expect(allRes.output.join('\n')).toContain('assemblyscript/wasm');
+        expect(allRes.output.join('\n')).toContain('duckdb/wasm');
 
         const emptyInstalled = await run(shell, 'wbt list --installed');
         expect(emptyInstalled.exitCode).toBe(0);
@@ -714,22 +599,22 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
     });
 
     it('searches packages by keyword with `wbt search`', async () => {
-        const { output, exitCode } = await run(shell, 'wbt search postgres');
+        const { output, exitCode } = await run(shell, 'wbt search json');
         expect(exitCode).toBe(0);
-        expect(output.join('\n')).toContain('pglite/wasm');
+        expect(output.join('\n')).toContain('jq/wasm');
         expect(output.join('\n')).not.toContain('lua/wasm');
     });
 
     it('shows detailed package metadata with `wbt show`', async () => {
-        const { output, exitCode } = await run(shell, 'wbt show pglite');
+        const { output, exitCode } = await run(shell, 'wbt show sqlite3');
         expect(exitCode).toBe(0);
         const text = output.join('\n');
-        expect(text).toContain('Package: pglite');
+        expect(text).toContain('Package: sqlite3');
         expect(text).toContain('State: not installed');
-        expect(text).toContain('Binary: pglite');
+        expect(text).toContain('Binary: sqlite3');
 
-        await run(shell, 'wbt install pglite');
-        const afterShow = await run(shell, 'wbt show pglite');
+        await run(shell, 'wbt install sqlite3');
+        const afterShow = await run(shell, 'wbt show sqlite3');
         expect(afterShow.output.join('\n')).toContain('State: installed');
     });
 
@@ -827,83 +712,6 @@ describe('WBT SQLite3 WASM package (`sqlite3` / `sqlite`)', () => {
         const tablesRes = await run(shell, 'sqlite3 /home/test.db ".tables"');
         expect(tablesRes.exitCode).toBe(0);
         expect(tablesRes.output.join('\n')).toContain('items');
-    });
-});
-
-describe('WBT PGlite WASM package (`pglite`, `psql`, `pg_ctl` & background server daemon)', () => {
-    let shell;
-
-    beforeEach(async () => {
-        await daemonManager.stopAll();
-        pgliteInstances.clear();
-        shell = await createShell({ filesystem: { home: {} } });
-        shell.context.setCommand(createTestWbt());
-        await run(shell, 'wbt install pglite');
-    });
-
-    it('runs one-shot SQL queries with `pglite -c` or positional SQL', async () => {
-        const { output, exitCode } = await run(shell, 'pglite -c "SELECT 7 * 6 AS product"');
-        expect(exitCode).toBe(0);
-        const text = output.join('\n');
-        expect(text).toContain('product');
-        expect(text).toContain('42');
-        expect(text).toContain('(1 row)');
-    });
-
-    it('persists database state across commands when a data directory is given and supports `psql` alias', async () => {
-        const initRes = await run(
-            shell,
-            'pglite -d /home/pgdata -c "CREATE TABLE projects (id INT, title TEXT); INSERT INTO projects VALUES (1, \'Brsh\');"'
-        );
-        expect(initRes.exitCode).toBe(0);
-
-        const queryRes = await run(
-            shell,
-            'psql -d /home/pgdata -c "SELECT * FROM projects"'
-        );
-        expect(queryRes.exitCode).toBe(0);
-        expect(queryRes.output.join('\n')).toContain('Brsh');
-
-        const dtRes = await run(shell, 'psql -d /home/pgdata -c "\\dt"');
-        expect(dtRes.exitCode).toBe(0);
-        expect(dtRes.output.join('\n')).toContain('projects');
-    });
-
-    it('starts a background PGlite server daemon (`pglite serve` / `pg_ctl start`), serves HTTP SQL via `curl`, and stops cleanly', async () => {
-        const startRes = await run(shell, 'pg_ctl start -D /home/pgdaemon -p 5432');
-        expect(startRes.exitCode).toBe(0);
-        expect(startRes.output.join('\n')).toContain('server started');
-
-        // Verify `wbt services` lists the running daemon
-        const svcRes = await run(shell, 'wbt services');
-        expect(svcRes.exitCode).toBe(0);
-        expect(svcRes.output.join('\n')).toContain('pglite');
-        expect(svcRes.output.join('\n')).toContain('5432');
-
-        // Query the live daemon over HTTP via `curl`!
-        const curlStatus = await run(shell, 'curl -s http://localhost:5432/status');
-        expect(curlStatus.exitCode).toBe(0);
-        expect(curlStatus.output.join('\n')).toContain('"status":"ready"');
-
-        // Create table & insert via HTTP POST to the daemon
-        const curlCreate = await run(
-            shell,
-            'curl -s -X POST -d "CREATE TABLE tasks (id INT, name TEXT); INSERT INTO tasks VALUES (1, \'DaemonTask\');" http://localhost:5432/query'
-        );
-        expect(curlCreate.exitCode).toBe(0);
-
-        // Query via `psql` client (auto-connects to the running daemon on port 5432!)
-        const psqlRes = await run(shell, 'psql -p 5432 -c "SELECT * FROM tasks"');
-        expect(psqlRes.exitCode).toBe(0);
-        expect(psqlRes.output.join('\n')).toContain('DaemonTask');
-
-        // Stop the daemon with `pg_ctl stop`
-        const stopRes = await run(shell, 'pg_ctl stop -p 5432');
-        expect(stopRes.exitCode).toBe(0);
-        expect(stopRes.output.join('\n')).toContain('server stopped');
-
-        const statusAfter = await run(shell, 'pg_ctl status -p 5432');
-        expect(statusAfter.exitCode).toBe(3);
     });
 });
 
@@ -1052,11 +860,9 @@ describe('WBT interactive REPL mode', () => {
     let shell;
 
     beforeEach(async () => {
-        await daemonManager.stopAll();
-        pgliteInstances.clear();
         shell = await createShell({ filesystem: { home: {} } });
         shell.context.setCommand(createTestWbt());
-        await run(shell, 'wbt install sqlite3 pglite');
+        await run(shell, 'wbt install sqlite3');
     });
 
     it('enters interactive REPL mode when `sqlite3` is invoked with no query and evaluates keystrokes until .exit', async () => {
@@ -1091,32 +897,6 @@ describe('WBT interactive REPL mode', () => {
 
         expect(shell.context.fs.exists('/home/interactive.db')).toBe(true);
     });
-
-    it('enters interactive REPL mode when `pglite` is invoked with no query and exits on Ctrl+D (^D)', async () => {
-        let interactiveFired = false;
-        shell.once('interactive', () => { interactiveFired = true; });
-
-        const screens = [];
-        const onOut = (line) => screens.push(line);
-        shell.on('stdOut', onOut);
-
-        const cmdPromise = shell.onCommand('pglite');
-
-        await new Promise(r => setTimeout(r, 20));
-        expect(interactiveFired).toBe(true);
-
-        for (const ch of 'SELECT 123 AS val;') {
-            shell.onInput(ch);
-        }
-        shell.onInput('Enter');
-
-        await new Promise(r => setTimeout(r, 20));
-        expect(screens[screens.length - 1]).toContain('123');
-
-        shell.onInput('^D');
-        await cmdPromise;
-        shell.removeListener('stdOut', onOut);
-    });
 });
 
 describe('Direct .wasm binary in /bin (without wbt) and standardized --help across all WASM bins', () => {
@@ -1148,11 +928,11 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
     it('passes through native --help when a WASM binary implements it and falls back to standardized --help otherwise', async () => {
         const shell = await createShell({ filesystem: { home: {} } });
         shell.context.setCommand(createTestWbt());
-        await run(shell, 'wbt install jq python3 pglite npm:cowsay-wasm');
+        await run(shell, 'wbt install jq python3 npm:cowsay-wasm');
         await run(shell, 'wbt install mywasm https://example.com/hello.wasm');
 
         // 1. Binaries without their own `--help` get the standardized fallback `--help` screen
-        for (const bin of ['python3', 'pglite', 'pg_ctl', 'cowsay-wasm', 'mywasm']) {
+        for (const bin of ['python3', 'cowsay-wasm', 'mywasm']) {
             const { output, exitCode } = await run(shell, `${bin} --help`);
             expect(exitCode).toBe(0);
             const text = output.join('\n');
@@ -1219,11 +999,10 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
     });
 });
 
-describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`, `llama-server`)', () => {
+describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)', () => {
     let shell;
 
     beforeEach(async () => {
-        await daemonManager.stopAll();
         wllamaInstances.clear();
         shell = await createShell({
             filesystem: {
@@ -1237,8 +1016,8 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`, `
         await run(shell, 'wbt install wllama');
     });
 
-    it('registers wllama, llama, llama-cli, and llama-server binaries and supports --help / --version', async () => {
-        for (const bin of ['wllama', 'llama', 'llama-cli', 'llama-server']) {
+    it('registers wllama, llama, and llama-cli binaries and supports --help / --version', async () => {
+        for (const bin of ['wllama', 'llama', 'llama-cli']) {
             const whichRes = await run(shell, `which ${bin}`);
             expect(whichRes.exitCode).toBe(0);
             expect(whichRes.output.join('')).toContain(`/bin/${bin}`);
@@ -1310,40 +1089,6 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`, `
         const benchRes = await run(shell, 'wllama bench');
         expect(benchRes.exitCode).toBe(0);
         expect(benchRes.output.join('\n')).toContain('PASSED');
-    });
-
-    it('starts an OpenAI-compatible background daemon (`llama-server` / `wllama serve`), serves HTTP requests via `curl`, and stops cleanly', async () => {
-        const startRes = await run(shell, 'llama-server -m /home/tinyllama.gguf -p 8080');
-        expect(startRes.exitCode).toBe(0);
-        expect(startRes.output.join('\n')).toContain('wllama server started');
-
-        // Verify `wbt services` lists the running daemon
-        const svcRes = await run(shell, 'wbt services');
-        expect(svcRes.exitCode).toBe(0);
-        expect(svcRes.output.join('\n')).toContain('wllama');
-        expect(svcRes.output.join('\n')).toContain('8080');
-
-        // Query `/health` and `/v1/models`
-        const healthRes = await run(shell, 'curl -s http://localhost:8080/health');
-        expect(healthRes.exitCode).toBe(0);
-        expect(healthRes.output.join('\n')).toContain('"engine":"wllama"');
-        expect(healthRes.output.join('\n')).toContain('"webgpu":true');
-
-        // POST OpenAI-compatible `/v1/chat/completions`
-        const chatRes = await run(
-            shell,
-            'curl -s -X POST -d \'{"messages":[{"role":"user","content":"Hello server"}]}\' http://localhost:8080/v1/chat/completions'
-        );
-        expect(chatRes.exitCode).toBe(0);
-        expect(chatRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): Hello server');
-
-        // Stop the daemon
-        const stopRes = await run(shell, 'wllama stop -p 8080');
-        expect(stopRes.exitCode).toBe(0);
-        expect(stopRes.output.join('\n')).toContain('wllama server stopped');
-
-        const statusAfter = await run(shell, 'wllama status -p 8080');
-        expect(statusAfter.exitCode).toBe(3);
     });
 
     it('enters interactive multi-turn chat REPL mode when `wllama` is invoked with no prompt', async () => {

@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
+    resolve: {
+        alias: {
+            'brsh': path.resolve(import.meta.dirname, 'index.js')
+        }
+    },
     test: {
         environment: 'node',
         globals: false,

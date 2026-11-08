@@ -215,7 +215,7 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 ## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `wllama`, `pglite`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
 
 ### Enabling `wbt`
 
@@ -237,6 +237,24 @@ const shell = new Shell({ filesystem: {} });
 shell.context.setCommand(Wbt);
 ```
 
+### Loading WASM CLI Tools without `wbt` (Base Shell)
+
+You can also register WASM CLI binaries directly into any `Shell` instance without `wbt`:
+
+```js
+import Shell from 'brsh';
+
+// 1. From a WASM URL or bytes
+const MyTool = Shell.createWasmCommand({
+    name: 'mytool',
+    wasmUrl: 'https://example.com/mytool.wasm'
+});
+shell.context.setCommand(MyTool);
+
+// 2. Or place any raw .wasm / .wat binary into /bin in your virtual filesystem:
+shell.onCommand('tool.wasm --help');
+```
+
 ### Usage in the shell
 
 ```sh
@@ -245,31 +263,16 @@ wbt list
 wbt list --installed
 
 # Search and inspect packages
-wbt search postgres
-wbt show pglite
+wbt search sql
+wbt show sqlite3
 
 # Install curated WASM packages into /bin
-wbt install wllama pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+wbt install wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
 
-# Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions, interactive chat REPL, or as an OpenAI-compatible server daemon!
+# Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
 wllama -m /home/model.gguf -p "Explain WebGPU in one sentence."
-wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M --persist -p "Hello!" # pulls & persists model to /var/cache/wllama/
-wllama pull hf:bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M -o /home/smol.gguf
+wllama pull https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M.gguf -o /home/model.gguf
 wllama -m /home/model.gguf # launches interactive multi-turn chat REPL
-llama-server -m /home/model.gguf -p 8080
-curl -s http://localhost:8080/v1/chat/completions -d '{"messages":[{"role":"user","content":"Hello!"}]}'
-wllama stop -p 8080
-
-# Run PGlite as a one-shot query, interactive REPL, or a background server daemon!
-pglite -d /home/pgdata -c "CREATE TABLE users (id INT, name TEXT); INSERT INTO users VALUES (1, 'Ada');"
-pglite # launches interactive PostgreSQL REPL
-
-# Start a PGlite background daemon on localhost:5432 and query it via HTTP (curl / fetch) or psql
-pg_ctl start -D /home/pgdata -p 5432
-wbt services
-curl -s -X POST -d "SELECT * FROM users;" http://localhost:5432/query
-psql -p 5432 -c "SELECT * FROM users;"
-pg_ctl stop -p 5432
 
 # Run SQLite3 (persists database files directly in the brsh filesystem)
 sqlite3 /home/app.db "CREATE TABLE notes (id INT, body TEXT); INSERT INTO notes VALUES (1, 'Hello WASM');"
