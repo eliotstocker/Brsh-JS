@@ -1279,6 +1279,23 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(false);
         expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(false);
     });
+
+    it('runs nano even when invoked with readonlyContext without context.fs', async () => {
+        await run(shell, 'wbt install nano');
+        const NanoCmd = shell.context.fs.getFileByPath('/bin/nano');
+        expect(NanoCmd).toBeDefined();
+
+        const readonlyCtx = Object.freeze({
+            getVar: (k) => shell.context.getVar(k),
+            getAlias: (k) => shell.context.getAlias(k),
+            getCommand: (k) => shell.context.getCommand(k)
+        });
+        const instance = new NanoCmd(['--version'], readonlyCtx);
+        instance.fs = shell.context.fs.sandbox();
+        const res = await instance.runCommand();
+        expect(res.getExitCode()).toBe(0);
+        expect(res.getStdOutput().map(l => l.string).join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+    });
 });
 
 
