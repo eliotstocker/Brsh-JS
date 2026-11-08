@@ -673,6 +673,9 @@ class Shell extends EventEmitter {
         });
 
         this.stdinStream.on('data', data => this._handleStdinData(data));
+        this.stdinStream.on('end', () => {
+            if (!this.destroyed) this.destroy(0);
+        });
     }
 
     sendCommand(command) {
@@ -843,6 +846,20 @@ class Shell extends EventEmitter {
                         i = j + 1;
                         continue;
                     }
+                }
+                i++;
+                continue;
+            }
+
+            if (code === 0x04) {
+                if (this._lineBuffer.length === 0) {
+                    this.stdout.write('exit\r\n');
+                    this.destroy(0);
+                    return;
+                }
+                if (this._cursorPos < this._lineBuffer.length) {
+                    this._lineBuffer.splice(this._cursorPos, 1);
+                    this._redrawPromptLine();
                 }
                 i++;
                 continue;
