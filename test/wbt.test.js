@@ -4,6 +4,7 @@ import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Wbt = require('../lib/wbt/index.js');
+const { wllamaInstances } = require('../lib/wbt/packages/wllama.js');
 
 // Minimal valid WASM binary that exits cleanly with 0 via _start:
 // (module (func (export "_start")))
@@ -354,10 +355,147 @@ function createMockEmscriptenCowsay() {
     };
 }
 
+/**
+ * In-memory mock implementation of @wllama/wllama v3 for deterministic tests.
+ */
+function createMockWllama() {
+    class MockWllama {
+        constructor(pathConfig, config = {}) {
+            this.pathConfig = pathConfig;
+            this.config = config;
+            this._loaded = false;
+            this._loadParams = {};
+            this._modelSource = null;
+            this.modelManager = {
+                getModels: async () => []
+            };
+        }
+
+        static getLibllamaVersion() {
+            return 'b6327-4d74393';
+        }
+
+        isSupportWebGPU() {
+            return true;
+        }
+
+        isMultithread() {
+            return true;
+        }
+
+        getNumThreads() {
+            return 4;
+        }
+
+        isModelLoaded() {
+            return this._loaded;
+        }
+
+        getModelMetadata() {
+            return {
+                hparams: { nVocab: 32000, nCtxTrain: 4096, nEmbd: 2048, nLayer: 22 },
+                meta: { 'general.name': 'TinyLlama-1.1B' }
+            };
+        }
+
+        async loadModel(blobs, params = {}) {
+            this._loaded = true;
+            this._loadParams = params;
+            this._modelSource = blobs.map(b => b.name || 'blob.gguf').join('+');
+        }
+
+        async loadModelFromUrl(urlOrObj, params = {}) {
+            if (typeof params.progressCallback === 'function') {
+                params.progressCallback({ loaded: 524288, total: 1048576 });
+                params.progressCallback({ loaded: 1048576, total: 1048576 });
+            }
+            this._loaded = true;
+            this._loadParams = params;
+            this._modelSource = typeof urlOrObj === 'string' ? urlOrObj : urlOrObj.url;
+        }
+
+        async loadModelFromHF(hfOpts, params = {}) {
+            if (typeof params.progressCallback === 'function') {
+                params.progressCallback({ loaded: 524288, total: 1048576 });
+                params.progressCallback({ loaded: 1048576, total: 1048576 });
+            }
+            this._loaded = true;
+            this._loadParams = params;
+            this._modelSource = `hf:${hfOpts.repo}:${hfOpts.quant || 'Q4_K_M'}`;
+        }
+
+        async getLoadedBlob() {
+            return new Uint8Array([0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00]);
+        }
+
+        async createChatCompletion(opts) {
+            const messages = opts.messages || [];
+            const sysMsg = messages.find(m => m.role === 'system');
+            const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content);
+            const prefix = sysMsg ? `[sys:${sysMsg.content}] ` : '';
+            const gpuTag = this._loadParams.n_gpu_layers === 0 ? 'CPU' : 'WebGPU';
+            const reply = `${prefix}Reply(${gpuTag},turns=${userMsgs.length}): ${userMsgs[userMsgs.length - 1] || ''}`;
+            return {
+                id: 'chatcmpl-wllama',
+                object: 'chat.completion',
+                choices: [
+                    {
+                        index: 0,
+                        message: { role: 'assistant', content: reply },
+                        finish_reason: 'stop'
+                    }
+                ]
+            };
+        }
+
+        async createCompletion(opts) {
+            return {
+                id: 'cmpl-wllama',
+                object: 'text_completion',
+                choices: [
+                    {
+                        index: 0,
+                        text: `${opts.prompt} [completed]`,
+                        finish_reason: 'stop'
+                    }
+                ]
+            };
+        }
+
+        async createEmbedding(opts) {
+            const text = String(opts.input || '');
+            return {
+                object: 'list',
+                data: [
+                    {
+                        object: 'embedding',
+                        index: 0,
+                        embedding: [text.length, 0.25, 0.5, 0.75]
+                    }
+                ]
+            };
+        }
+
+        async testBackendOps() {
+            return { retcode: 0, success: true };
+        }
+
+        async exit() {
+            this._loaded = false;
+        }
+    }
+
+    return {
+        Wllama: MockWllama,
+        LoggerWithoutDebug: console
+    };
+}
+
 function createTestWbt() {
     return Wbt.configure({
         moduleLoader: async (pkgName) => {
             if (pkgName === 'sql.js' || pkgName === 'sqlite3') return createMockSqlJs();
+            if (pkgName === '@wllama/wllama' || pkgName === 'wllama') return createMockWllama();
             if (pkgName === 'assemblyscript/asc' || pkgName === 'assemblyscript') return createMockAsc();
             if (pkgName === 'quickjs-emscripten' || pkgName === 'quickjs') return createMockQuickJs();
             if (pkgName === 'wasmoon' || pkgName === 'lua') return createMockLua();
@@ -860,5 +998,178 @@ describe('Direct .wasm binary in /bin (without wbt) and standardized --help acro
         expect(helpText).toContain('WASM Exports: _start');
     });
 });
+
+describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)', () => {
+    let shell;
+
+    beforeEach(async () => {
+        wllamaInstances.clear();
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'tinyllama.gguf': 'GGUF_MODEL_BINARY_BYTES',
+                    'prompt.txt': 'Explain WebGPU in one sentence.'
+                }
+            }
+        });
+        shell.context.setCommand(createTestWbt());
+        await run(shell, 'wbt install wllama');
+    });
+
+    it('registers wllama, llama, and llama-cli binaries and supports --help / --version', async () => {
+        for (const bin of ['wllama', 'llama', 'llama-cli']) {
+            const whichRes = await run(shell, `which ${bin}`);
+            expect(whichRes.exitCode).toBe(0);
+            expect(whichRes.output.join('')).toContain(`/bin/${bin}`);
+        }
+
+        const helpRes = await run(shell, 'wllama --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toContain('WebGPU');
+        expect(helpRes.output.join('\n')).toContain('--n-gpu-layers');
+
+        const runHelpRes = await run(shell, 'wbt run wllama --help');
+        expect(runHelpRes.exitCode).toBe(0);
+        expect(runHelpRes.output.join('\n')).toContain('Usage: wllama');
+    });
+
+    it('runs one-shot chat completions from a local filesystem .gguf model, piped stdin, or -f file with WebGPU or --no-gpu', async () => {
+        const res1 = await run(
+            shell,
+            'wllama -m /home/tinyllama.gguf -s "Be concise" -p "Hello Wllama 3!"'
+        );
+        expect(res1.exitCode).toBe(0);
+        expect(res1.output.join('\n')).toContain('[sys:Be concise] Reply(WebGPU,turns=1): Hello Wllama 3!');
+
+        // CPU fallback (--no-gpu / -ngl 0)
+        const resCpu = await run(
+            shell,
+            'llama -m /home/tinyllama.gguf --no-gpu -p "CPU test"'
+        );
+        expect(resCpu.exitCode).toBe(0);
+        expect(resCpu.output.join('\n')).toContain('Reply(CPU,turns=1): CPU test');
+
+        // Piped stdin
+        const piped = await run(
+            shell,
+            'echo "Piped prompt" | llama-cli -m /home/tinyllama.gguf'
+        );
+        expect(piped.exitCode).toBe(0);
+        expect(piped.output.join('\n')).toContain('Reply(WebGPU,turns=1): Piped prompt');
+
+        // File prompt (-f) and raw completion (--raw)
+        const rawRes = await run(
+            shell,
+            'wllama -m /home/tinyllama.gguf --raw -f /home/prompt.txt'
+        );
+        expect(rawRes.exitCode).toBe(0);
+        expect(rawRes.output.join('\n')).toContain('Explain WebGPU in one sentence. [completed]');
+    });
+
+    it('supports Hugging Face model loading (--hf / hf:), embeddings (wllama embed), info, and bench', async () => {
+        const hfRes = await run(
+            shell,
+            'wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M -p "From HF"'
+        );
+        expect(hfRes.exitCode).toBe(0);
+        expect(hfRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): From HF');
+
+        const embRes = await run(
+            shell,
+            'wllama embed -m /home/tinyllama.gguf -p "hello"'
+        );
+        expect(embRes.exitCode).toBe(0);
+        expect(JSON.parse(embRes.output.join(''))).toEqual([5, 0.25, 0.5, 0.75]);
+
+        const infoRes = await run(shell, 'wllama info -m /home/tinyllama.gguf');
+        expect(infoRes.exitCode).toBe(0);
+        expect(infoRes.output.join('\n')).toContain('WebGPU:       enabled');
+        expect(infoRes.output.join('\n')).toContain('layers=22');
+
+        const benchRes = await run(shell, 'wllama bench');
+        expect(benchRes.exitCode).toBe(0);
+        expect(benchRes.output.join('\n')).toContain('PASSED');
+    });
+
+    it('enters interactive multi-turn chat REPL mode when `wllama` is invoked with no prompt', async () => {
+        let interactiveFired = false;
+        shell.once('interactive', () => { interactiveFired = true; });
+
+        const screens = [];
+        const onOut = (line) => screens.push(line);
+        shell.on('stdOut', onOut);
+
+        const cmdPromise = shell.onCommand('wllama -m /home/tinyllama.gguf');
+
+        await new Promise(r => setTimeout(r, 20));
+        expect(interactiveFired).toBe(true);
+
+        for (const ch of 'First question') {
+            shell.onInput(ch);
+        }
+        shell.onInput('Enter');
+        await new Promise(r => setTimeout(r, 20));
+        expect(screens[screens.length - 1]).toContain('Reply(WebGPU,turns=1): First question');
+
+        for (const ch of 'Second question') {
+            shell.onInput(ch);
+        }
+        shell.onInput('Enter');
+        await new Promise(r => setTimeout(r, 20));
+        expect(screens[screens.length - 1]).toContain('Reply(WebGPU,turns=2): Second question');
+
+        shell.onInput('^D');
+        await cmdPromise;
+        shell.removeListener('stdOut', onOut);
+    });
+
+    it('persists pulled remote models to the brsh filesystem via `--persist`, `-o`, and `wllama pull`', async () => {
+        // 1. Run with `--persist` (saves to default /var/cache/wllama/<filename>.gguf)
+        const persistRes = await run(
+            shell,
+            'wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M --persist -p "Persist test"'
+        );
+        expect(persistRes.exitCode).toBe(0);
+        expect(persistRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): Persist test');
+        expect(shell.context.fs.exists('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf')).toBe(true);
+
+        // 2. Run with `-o` / `--output` to persist to a custom path
+        const outRes = await run(
+            shell,
+            'wllama -m https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf -o /home/saved-stories.gguf -p "Saved custom"'
+        );
+        expect(outRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/home/saved-stories.gguf')).toBe(true);
+
+        // 3. Dedicated `wllama pull` subcommand streams download progress bars
+        const pullRes = await run(
+            shell,
+            'wllama pull hf:bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M -o /home/smol.gguf'
+        );
+        expect(pullRes.exitCode).toBe(0);
+        expect(pullRes.output.some(l => l.startsWith('\rPulling') && l.includes('50%'))).toBe(true);
+        expect(pullRes.output.some(l => l.startsWith('\rPulling') && l.includes('100%'))).toBe(true);
+        expect(pullRes.output.join('\n')).toContain('Persisted model');
+        expect(pullRes.output.join('\n')).toContain('/home/smol.gguf');
+        expect(shell.context.fs.exists('/home/smol.gguf')).toBe(true);
+
+        // 4. `-q` / `--no-progress` suppresses the progress bar
+        const quietRes = await run(
+            shell,
+            'wllama pull hf:ggml-org/models/tinyllamas/stories15M-q4_0.gguf -q -o /home/quiet.gguf'
+        );
+        expect(quietRes.exitCode).toBe(0);
+        expect(quietRes.output.some(l => l.startsWith('\rPulling'))).toBe(false);
+        expect(shell.context.fs.exists('/home/quiet.gguf')).toBe(true);
+
+        // 5. Verify `wllama models` lists persisted models in `/var/cache/wllama`
+        const modelsRes = await run(shell, 'wllama models');
+        expect(modelsRes.exitCode).toBe(0);
+        expect(modelsRes.output.join('\n')).toContain('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf');
+        expect(modelsRes.output.join('\n')).toContain('persisted (fs)');
+    });
+});
+
+
 
 

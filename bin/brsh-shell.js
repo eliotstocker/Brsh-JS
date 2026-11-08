@@ -113,14 +113,28 @@ function reportSize() {
 
 process.stdout.on('resize', () => { if (inInteractiveApp) reportSize(); });
 
+let inProgressLine = false;
 shell.on('stdOut', line => {
     if (inInteractiveApp) {
         process.stdout.write(line);
+    } else if (typeof line === 'string' && line.startsWith('\r')) {
+        inProgressLine = true;
+        process.stdout.write('\r\x1b[K' + line.slice(1));
     } else {
+        if (inProgressLine) {
+            process.stdout.write('\n');
+            inProgressLine = false;
+        }
         process.stdout.write(line + '\n');
     }
 });
-shell.on('stdErr', line => process.stderr.write(line + '\n'));
+shell.on('stdErr', line => {
+    if (inProgressLine) {
+        process.stdout.write('\n');
+        inProgressLine = false;
+    }
+    process.stderr.write(line + '\n');
+});
 
 shell.on('exit', code => {
     destroyed = true;

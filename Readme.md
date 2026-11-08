@@ -215,7 +215,7 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 ## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat` URLs). It is **not** included in the default shell bundle unless you explicitly register it.
 
 ### Enabling `wbt`
 
@@ -267,7 +267,12 @@ wbt search sql
 wbt show sqlite3
 
 # Install curated WASM packages into /bin
-wbt install sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+wbt install wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg
+
+# Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
+wllama -m /home/model.gguf -p "Explain WebGPU in one sentence."
+wllama pull https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M.gguf -o /home/model.gguf
+wllama -m /home/model.gguf # launches interactive multi-turn chat REPL
 
 # Run SQLite3 (persists database files directly in the brsh filesystem)
 sqlite3 /home/app.db "CREATE TABLE notes (id INT, body TEXT); INSERT INTO notes VALUES (1, 'Hello WASM');"
