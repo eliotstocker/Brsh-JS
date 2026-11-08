@@ -66,7 +66,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `export VAR=val`
 - [x] `return [n]`
 - [x] `set` (flags + positional params)
-- [x] `source` / `. script` *(`.` alias missing — see below)*
+- [x] `source` / `. script`
 - [x] `.` — dot command (alias for `source`)
 - [ ] `:` — no-op, always exits 0
 - [x] `break [n]`
@@ -118,7 +118,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `cd` / `pwd`
 - [x] `touch`
 - [ ] `find`
-- [x] `ln` (symlinks — real FS only; `-s` symlinks, hard links, `-f` force)
+- [x] `ln` (`-s` symlinks on virtual & real FS, hard links on real FS, `-f` force)
 - [x] `stat` (real FS: full lstat output; virtual FS: size, type, mode)
 
 ### Path Utilities
@@ -132,7 +132,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [ ] `env` / `printenv`
 - [ ] `kill`
 - [ ] `xargs`
-- [ ] `test` (as standalone command) — `[` and `[[` covered by `test` builtin
+- [x] `test` / `[` (standalone `test` and `[` builtins)
 - [x] `which`
 - [x] `true`
 - [x] `false`

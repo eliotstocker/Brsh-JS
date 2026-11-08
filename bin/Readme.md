@@ -1,33 +1,79 @@
-# Export File System
+# CLI Utilities (`bin/`)
 
-the export file system command can be used to export a local folder structure for use as a filesystem in Shell.js
+This directory contains the command-line utilities for building virtual filesystems and running `brsh` in Node.js.
 
-## What Will it Do?
+---
 
-it will travers the directory structure from the provided base path, and import all files based on the following rules:
+## 1. `exportFileSystem`
 
-* Javascript files (.js): imported as node modules, whatever they export will be available to Shell JS, this is really useful for adding new commands just make sure you set module.exports to your Command class
-* WebAssembly files (.wasm): automatically wrapped as executable `WasmCommand` binaries (especially when placed in `/bin`) or stored as raw binary files
-* Binary files (.jpg, .png, .bmp, .pdf, .zip, etc.): stored as `BinaryFile` instances (or raw zero-overhead byte slices when using `--binary` / `.brfs`)
-* all other files: imported as UTF-8 string representations of the data inside (preserving Unix file permissions and symlinks)
+`exportFileSystem` converts a local directory structure into a virtual filesystem bundle or `.brfs` binary container for use in `brsh`.
 
-## CLI options 
+### How Files Are Imported
 
-| name       | alias | variable      | description |
-| ----       | ----- | --------      | ----------- |
-| root       |       | `String` path | also the default option, this is the path to the root of your file system |
-| variable   | v     | `String` name | final variable output name for instance if set to `filesystem` when this file is loaded in a browser it will be accessible at `window.filesystem` |
-| output     | o     | `String` path | path for the output file (`.js` bundle or standalone `.brfs` binary container; if not set will output to stdout) |
-| binary     | b     |               | emit an indexed `BRFS` binary container (`.brfs`) with raw binary payloads, permissions, and symlinks instead of base64-in-JS |
-| compress   | c     |               | emit a gzip-compressed bundle alongside a browser decompression loader (legacy `.brsh` / `.brfs` mode) |
-| pretty     | p     |               | if pretty is set we will disable code uglification and pretify the json directory structure | 
-| hyperlinks | h     |               | enable experimental hyperlink support for application (this will pass through an environment variable to your filesystem FORCE_HYPERLINK some libraries will pick up on this and pass back ansi links) |
+`exportFileSystem` traverses the directory structure from the provided root path and imports files according to the following rules:
 
-## how does it work
+* **JavaScript files (`.js`)**: Bundled via `esbuild` as CommonJS/ESM modules. Whatever they export is available directly to `brsh` — useful for adding custom `Command` classes (`module.exports = MyCommand`).
+* **WebAssembly files (`.wasm`)**: Automatically wrapped as executable `WasmCommand` binaries (when placed in `/bin`) or stored as raw binary files.
+* **Binary files (`.jpg`, `.png`, `.gif`, `.bmp`, `.webp`, `.ico`, `.pdf`, `.zip`, etc.)**: Stored as `BinaryFile` (`Uint8Array`) instances (or zero-overhead byte slices when using `--binary` / `.brfs`).
+* **All other files**: Imported as UTF-8 strings, preserving Unix file permissions (`mode`) and symbolic links (`SymlinkRef`).
 
-most of the heavy lifting is done by [browserify](http://browserify.org/) and the following awesome plugins:
+### CLI Options
 
-* [Stringify](http://johnpostlethwait.github.io/stringify/)
-* [Imgurify](https://github.com/asbjornenge/imgurify)
-* [Bundle Collapser](https://github.com/substack/bundle-collapser)
-* [Uglifyify](https://github.com/hughsk/uglifyify)
+| Option       | Alias | Type          | Description |
+| ------       | ----- | ----          | ----------- |
+| `root`       |       | `String` path | *(Default positional option, required)* Path to the root directory of your filesystem |
+| `variable`   | `-v`  | `String` name | Global variable name (`globalThis.<variable>`) assigned when outputting a `.js` bundle (`{ filesystem, permissions }`). Not required when `-o` ends with `.brfs` |
+| `output`     | `-o`  | `String` path | Output file path (`.js` bundle or standalone `.brfs` binary container) |
+| `binary`     | `-b`  | `Boolean`     | Emit an indexed `BRFS` binary container (`.brfs`) with raw binary payloads, permissions, symlinks, and bundled JS commands instead of base64-in-JS |
+| `compress`   | `-c`  | `Boolean`     | Gzip-compress the emitted `.brfs` container (or JS bundle) and generate a browser `DecompressionStream` loader when outputting `.js` |
+| `pretty`     | `-p`  | `Boolean`     | Disable minification and pretty-print the JSON directory structure |
+| `hyperlinks` | `-h`  | `Boolean`     | Set `process.env.FORCE_HYPERLINK="true"` in bundled JS commands so libraries emit ANSI OSC 8 hyperlinks |
+
+### Examples
+
+```shell
+# Standard JS bundle (sets globalThis.fs = { filesystem, permissions })
+exportFileSystem ./demo/filesystem -o ./demo/fs.js -v fs
+
+# Standalone .brfs binary container (pass URL or Uint8Array directly to new Shell({ filesystem: '/fs.brfs' }))
+exportFileSystem ./demo/filesystem -o ./demo/fs.brfs
+
+# Binary .brfs container + tiny JS loader (sets globalThis.fs = Promise<{ filesystem, permissions }>)
+exportFileSystem ./demo/filesystem -o ./demo/fs.js -v fs --binary --compress
+```
+
+### How It Works
+
+`exportFileSystem` uses [`lib/buildFilesystemStructure.js`](../lib/buildFilesystemStructure.js) to walk the directory tree and record file contents, permissions, and symlinks, [`esbuild`](https://esbuild.github.io/) with `esbuild-plugin-polyfill-node` to bundle any `.js` command modules for the browser, and [`lib/BinaryContainer.js`](../lib/BinaryContainer.js) to serialize `.brfs` binary containers.
+
+---
+
+## 2. `brsh` (`bin/brsh-shell.js`)
+
+Interactive Node.js REPL and non-interactive script/command runner backed by `brsh` (with `wbt` and `pico` pre-registered).
+
+```shell
+# Interactive REPL against the real Node.js filesystem
+brsh
+
+# Interactive REPL against the virtual demo filesystem
+brsh --demo
+
+# Run a single command string and exit
+brsh -c "ls -la | grep Readme"
+
+# Run a script file with arguments and shell flags (-e, -x)
+brsh -e -x ./myscript.sh arg1 arg2
+```
+
+---
+
+## 3. `bin/brsh-cmd.js`
+
+Multi-call CLI wrapper used by the BusyBox compatibility test suite. Can be invoked directly (`node bin/brsh-cmd.js grep foo file.txt`) or symlinked under a command's name (`cat`, `cp`, `grep`, `ls`, `mv`, `rm`, `busybox`, etc.) to run any `brsh` command against the real Node.js filesystem.
+
+---
+
+## 4. `bin/zsh-server.js`
+
+Zero-dependency HTTP + WebSocket server (`npm run demo:zsh`) that spawns a real OS shell (`$SHELL` / `/bin/zsh`) via [`lib/terminal/PtyBridge.js`](../lib/terminal/PtyBridge.js) and attaches it to `brsh/terminal` in the browser at `http://127.0.0.1:3080`.
