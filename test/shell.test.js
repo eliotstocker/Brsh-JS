@@ -215,6 +215,55 @@ describe('unclosed quote error', () => {
     });
 });
 
+describe('backslash quote escaping', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('parses echo "hello \\"world\\"" to [\'echo\', \'hello "world"\']', async () => {
+        const cmd = 'echo "hello \\"world\\""';
+        const parts = Shell._splitCommand(cmd).map(p => p.value);
+        expect(parts).toEqual(['echo', 'hello "world"']);
+
+        const { output, errors, exitCode } = await run(shell, cmd);
+        expect(errors).toHaveLength(0);
+        expect(exitCode).toBe(0);
+        expect(output).toEqual(['hello "world"']);
+    });
+
+    it('parses echo "Eliot\'s CV with \\"nested quotes\\"" cleanly without throwing quote expression not closed', async () => {
+        const cmd = 'echo "Eliot\'s CV with \\"nested quotes\\""';
+        const parts = Shell._splitCommand(cmd).map(p => p.value);
+        expect(parts).toEqual(['echo', 'Eliot\'s CV with "nested quotes"']);
+
+        const { output, errors, exitCode } = await run(shell, cmd);
+        expect(errors).toHaveLength(0);
+        expect(exitCode).toBe(0);
+        expect(output).toEqual(['Eliot\'s CV with "nested quotes"']);
+    });
+
+    it('parses echo \'Eliot\'\\\'\'s experience\' correctly into [\'echo\', "Eliot\'s experience"]', async () => {
+        const cmd = "echo 'Eliot'\\''s experience'";
+        const parts = Shell._splitCommand(cmd).map(p => p.value);
+        expect(parts).toEqual(['echo', "Eliot's experience"]);
+
+        const { output, errors, exitCode } = await run(shell, cmd);
+        expect(errors).toHaveLength(0);
+        expect(exitCode).toBe(0);
+        expect(output).toEqual(["Eliot's experience"]);
+    });
+
+    it('parses echo \\"unquoted\\" to [\'echo\', \'"unquoted"\']', async () => {
+        const cmd = 'echo \\"unquoted\\"';
+        const parts = Shell._splitCommand(cmd).map(p => p.value);
+        expect(parts).toEqual(['echo', '"unquoted"']);
+
+        const { output, errors, exitCode } = await run(shell, cmd);
+        expect(errors).toHaveLength(0);
+        expect(exitCode).toBe(0);
+        expect(output).toEqual(['"unquoted"']);
+    });
+});
+
 describe('output redirection', () => {
     it('writes command stdout to a file with >', async () => {
         const shell = await createShell({ filesystem: { home: {} } });

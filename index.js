@@ -1286,6 +1286,26 @@ class Shell extends EventEmitter {
                 continue;
             }
 
+            // Escape handling inside double quotes
+            if (doubleQuoteOpen && ch === '\\' && i + 1 < string.length) {
+                const next = string[i + 1];
+                if (next === '"' || next === '\\' || next === '$') {
+                    tokenBuffer.push(next);
+                    i++;
+                    continue;
+                }
+            }
+
+            // Escape handling outside quotes
+            if (!singleQuoteOpen && !doubleQuoteOpen && ch === '\\' && i + 1 < string.length) {
+                const next = string[++i];
+                tokenBuffer.push(next);
+                if (next === '"' || next === "'") {
+                    tokenHasQuote = true;
+                }
+                continue;
+            }
+
             // Quote handling
             if (ch === "'" && !doubleQuoteOpen) {
                 singleQuoteOpen = !singleQuoteOpen;
