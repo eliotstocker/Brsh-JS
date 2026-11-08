@@ -91,7 +91,14 @@ describe('Terminal decoupling and Shell resolution', () => {
 
     it('can be required as a CommonJS module via dist/terminal.cjs.js', () => {
         const { createRequire } = require('module');
+        const fs = require('fs');
+        const path = require('path');
         const cjsRequire = createRequire(import.meta.url);
+        const distFile = path.resolve(import.meta.dirname, '../dist/terminal.cjs.js');
+        if (!fs.existsSync(distFile)) {
+            const { execSync } = require('child_process');
+            execSync('npm run build:terminal', { stdio: 'ignore' });
+        }
         const CjsTerminal = cjsRequire('../dist/terminal.cjs.js');
         const TermClass = CjsTerminal.default || CjsTerminal;
         expect(typeof TermClass).toBe('function');
