@@ -40,8 +40,9 @@ class Pico extends InteractiveCommand {
         // Load existing file if given
         if (this._filename) {
             try {
-                const absPath = this.context.fs.absolutePath(this._filename);
-                const content = this.context.fs._getFileRaw(absPath);
+                const fs = this.fs || (this.context && this.context.fs);
+                const absPath = fs.absolutePath(this._filename);
+                const content = fs._getFileRaw(absPath);
                 if (typeof content === 'string') {
                     this._lines = content.split('\n');
                     if (this._lines.length === 0) this._lines = [''];
@@ -227,9 +228,10 @@ class Pico extends InteractiveCommand {
             return;
         }
         try {
-            const absPath = this.context.fs.absolutePath(this._filename);
+            const fs = this.fs || (this.context && this.context.fs);
+            const absPath = fs.absolutePath(this._filename);
             const content = this._lines.join('\n');
-            this.context.fs.setFileByPath(absPath, content, true);
+            fs.setFileByPath(absPath, content, true);
             this._modified = false;
             this._status = `Saved: ${this._filename}`;
         } catch(e) {
@@ -280,8 +282,9 @@ class Pico extends InteractiveCommand {
                 const atChar = this._escapeAnsi(col < visible.length ? visible[col] : ' ');
                 const after  = this._escapeAnsi(visible.slice(col + 1));
                 const lineStr = before + INVERT + atChar + RESET + after;
-                // Pad to cols with plain spaces after the content
-                const padding = ' '.repeat(Math.max(0, cols - visible.length));
+                // Pad to cols with plain spaces after the content (accounting for cursor block at end of line)
+                const renderedLen = before.length + 1 + after.length;
+                const padding = ' '.repeat(Math.max(0, cols - renderedLen));
                 outputLines.push(lineStr + padding);
             } else {
                 outputLines.push(this._escapeAnsi(this._pad(visible, cols)));

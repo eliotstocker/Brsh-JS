@@ -31,6 +31,22 @@
     color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
 }
 
+.terminal__inverse {
+    background-color: currentColor;
+    -webkit-text-fill-color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
+    color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
+}
+
+.terminal__blink {
+    animation: 1s blink 500ms step-end infinite;
+}
+
+.terminal__link {
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
 .terminal__line {
     white-space: pre;
     overflow: hidden;
