@@ -672,3 +672,96 @@ describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compat
         }
     });
 });
+
+describe('Output Typing Animation Suppression', () => {
+    beforeEach(() => {
+        createMockDom();
+    });
+
+    it('renders user typing input instantly even when outputAnimation is "type"', async () => {
+        const shell = new Shell({
+            filesystem: { root: {} },
+            cwd: '/root',
+            hostname: 'brsh'
+        });
+        const ready = waitForReady(shell);
+
+        const term = new Terminal({
+            el: document.createElement('div'),
+            cli: shell,
+            cols: 80,
+            rows: 24,
+            outputAnimation: 'type',
+            animateSpeed: 1
+        });
+        await ready;
+
+        try {
+            // Normal multi-line output is queued for typing animation (not rendered synchronously)
+            term.writeln('Animated background output line');
+            expect(term.getScreenText()).not.toContain('Animated background output line');
+
+            // User typing into the terminal flushes pending animation and renders keystrokes synchronously
+            term.sendKey('e');
+            term.sendKey('c');
+            term.sendKey('h');
+            term.sendKey('o');
+            expect(term.getScreenText()).toContain('brsh:root$ echo');
+        } finally {
+            term.reset();
+        }
+    });
+
+    it('renders same-line rewrites (\\r, \\x1b[K) instantly without re-animating the line', () => {
+        const term = new Terminal({
+            el: document.createElement('div'),
+            Shell: false,
+            cols: 60,
+            rows: 10,
+            outputAnimation: 'type',
+            animateSpeed: 1
+        });
+
+        try {
+            term.write('\rDownloading: [###       ] 30%\x1b[K');
+            expect(term.getLineText(0)).toBe('Downloading: [###       ] 30%');
+
+            term.write('\rDownloading: [#######   ] 70%\x1b[K');
+            expect(term.getLineText(0)).toBe('Downloading: [#######   ] 70%');
+
+            term.write('\rDownloading: [##########] 100%\x1b[K');
+            expect(term.getLineText(0)).toBe('Downloading: [##########] 100%');
+        } finally {
+            term.reset();
+        }
+    });
+
+    it('renders full-screen apps instantly without typing animation', () => {
+        const term = new Terminal({
+            el: document.createElement('div'),
+            Shell: false,
+            cols: 60,
+            rows: 10,
+            outputAnimation: 'type',
+            animateSpeed: 1
+        });
+
+        try {
+            // Entering alternate screen buffer + rendering full screen happens synchronously on write()
+            term.write('\x1b[?1049h\x1b[2J\x1b[HFull Screen Header\r\nBody Row 1');
+            expect(term.screen.isAltScreen).toBe(true);
+            expect(term.getLineText(0)).toBe('Full Screen Header');
+            expect(term.getLineText(1)).toBe('Body Row 1');
+
+            // Updating inside the full-screen app is also synchronous
+            term.write('\x1b[2;1HBody Row 1 Updated');
+            expect(term.getLineText(1)).toBe('Body Row 1 Updated');
+
+            // Exiting alternate screen buffer is synchronous
+            term.write('\x1b[?1049l');
+            expect(term.screen.isAltScreen).toBe(false);
+        } finally {
+            term.reset();
+        }
+    });
+});
