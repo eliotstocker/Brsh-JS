@@ -1,3 +1,10 @@
+## [3.1.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.0...v3.1.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **shell:** handle backslash quote escaping in _splitCommand ([692cc9c](https://github.com/eliotstocker/Brsh-JS/commit/692cc9c2852b5ed2b2ae94e9e7a1b3cacce9ada9))
+
 # [3.1.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.0.0...v3.1.0) (2026-11-08)
 
 
