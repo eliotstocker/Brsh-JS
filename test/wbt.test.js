@@ -516,15 +516,27 @@ function createMockWllama() {
         }
 
         async loadModelFromUrl(urlOrObj, params = {}) {
+            if (typeof params.progressCallback === 'function') {
+                params.progressCallback({ loaded: 524288, total: 1048576 });
+                params.progressCallback({ loaded: 1048576, total: 1048576 });
+            }
             this._loaded = true;
             this._loadParams = params;
             this._modelSource = typeof urlOrObj === 'string' ? urlOrObj : urlOrObj.url;
         }
 
         async loadModelFromHF(hfOpts, params = {}) {
+            if (typeof params.progressCallback === 'function') {
+                params.progressCallback({ loaded: 524288, total: 1048576 });
+                params.progressCallback({ loaded: 1048576, total: 1048576 });
+            }
             this._loaded = true;
             this._loadParams = params;
             this._modelSource = `hf:${hfOpts.repo}:${hfOpts.quant || 'Q4_K_M'}`;
+        }
+
+        async getLoadedBlob() {
+            return new Uint8Array([0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00]);
         }
 
         async createChatCompletion(opts) {
@@ -1384,17 +1396,28 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`, `
         expect(outRes.exitCode).toBe(0);
         expect(shell.context.fs.exists('/home/saved-stories.gguf')).toBe(true);
 
-        // 3. Dedicated `wllama pull` subcommand
+        // 3. Dedicated `wllama pull` subcommand streams download progress bars
         const pullRes = await run(
             shell,
             'wllama pull hf:bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M -o /home/smol.gguf'
         );
         expect(pullRes.exitCode).toBe(0);
+        expect(pullRes.output.some(l => l.startsWith('\rPulling') && l.includes('50%'))).toBe(true);
+        expect(pullRes.output.some(l => l.startsWith('\rPulling') && l.includes('100%'))).toBe(true);
         expect(pullRes.output.join('\n')).toContain('Persisted model');
         expect(pullRes.output.join('\n')).toContain('/home/smol.gguf');
         expect(shell.context.fs.exists('/home/smol.gguf')).toBe(true);
 
-        // 4. Verify `wllama models` lists persisted models in `/var/cache/wllama`
+        // 4. `-q` / `--no-progress` suppresses the progress bar
+        const quietRes = await run(
+            shell,
+            'wllama pull hf:ggml-org/models/tinyllamas/stories15M-q4_0.gguf -q -o /home/quiet.gguf'
+        );
+        expect(quietRes.exitCode).toBe(0);
+        expect(quietRes.output.some(l => l.startsWith('\rPulling'))).toBe(false);
+        expect(shell.context.fs.exists('/home/quiet.gguf')).toBe(true);
+
+        // 5. Verify `wllama models` lists persisted models in `/var/cache/wllama`
         const modelsRes = await run(shell, 'wllama models');
         expect(modelsRes.exitCode).toBe(0);
         expect(modelsRes.output.join('\n')).toContain('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf');
