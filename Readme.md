@@ -26,11 +26,14 @@ You may also use it as a node module. Install via npm:
 npm i brsh
 ```
 
-Import the terminal in your code:
+Import both Shell and Terminal in your code:
 ```js
 // ESM
+import Shell from 'brsh';
 import Terminal from 'brsh/terminal';
+
 // CJS
+const Shell = require('brsh');
 const Terminal = require('brsh/terminal');
 ```
 
@@ -56,6 +59,8 @@ All [Shell options](#shell-options) are also accepted and forwarded directly to 
 | option          | required | default       | description |
 | ------          | -------- | -------       | ----------- |
 | el              | Yes      |               | A HTMLElement to fill with the terminal emulator |
+| cli             | No       |               | An existing `Shell` instance to attach the terminal emulator to |
+| Shell           | No       |               | A custom `Shell` class constructor to use when creating the underlying shell |
 | font            | No       | `Roboto Mono` | Name of a Google Webfont to use for the console font; a monospace font is recommended |
 | cursor          | No       | `none`        | One of: `none`, `block`, `blink`. If `block` or `blink`, a cursor block character is shown at the end of the current line |
 | outputAnimation | No       | `none`        | One of: `none`, `type`. If `type`, each character is appended in order for a retro typing effect |

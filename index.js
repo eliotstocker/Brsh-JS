@@ -887,4 +887,5 @@ Shell.BinaryContainer = require('./lib/BinaryContainer');
 Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
 
 globalThis.shell = Shell;
+globalThis.Shell = Shell;
 module.exports = Shell;
