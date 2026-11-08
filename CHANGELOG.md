@@ -1,3 +1,28 @@
+# [3.0.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.8.1...v3.0.0) (2026-11-08)
+
+
+### Bug Fixes
+
+* **ci:** resolve Linux runner failures and missing CLI dependencies ([#30](https://github.com/eliotstocker/Brsh-JS/issues/30)) ([bb17bf9](https://github.com/eliotstocker/Brsh-JS/commit/bb17bf9009d22ebff44683d84f1eda119ecb16cc))
+
+
+### Features
+
+* **terminal:** implement self-contained VT100/ANSI terminal emulator and TTY stream architecture ([#28](https://github.com/eliotstocker/Brsh-JS/issues/28)) ([bf8509b](https://github.com/eliotstocker/Brsh-JS/commit/bf8509bd64196e99f6c0d17a5c889313856f2948))
+
+
+### BREAKING CHANGES
+
+* **terminal:** Terminal now renders a fixed-grid VT100/ANSI screen buffer and communicates with shells and commands strictly via stdin/stdout TTY streams rather than DOM list-item events and ansi_up.
+
+* test(terminal): add full-screen ReplCommand and real OS ncurses PTY tests
+
+* fix(terminal): suppress typing animation for user input, line rewrites, and full-screen apps
+
+* fix(terminal): ensure cursor visibility on motion, support alt+backspace, and fix wrapped line editing
+
+* refactor(cli): simplify Node CLI runner to stream directly via stdin and stdout
+
 ## [2.8.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.8.0...v2.8.1) (2026-11-08)
 
 
