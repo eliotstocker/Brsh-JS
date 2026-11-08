@@ -6,6 +6,9 @@ const ScriptCommand = require('./lib/ScriptCommand');
 const WasmCommand = require('./lib/WasmCommand');
 const Command = require('./lib/Command');
 const InteractiveCommand = require('./lib/InteractiveCommand');
+const { TtyStream } = require('./lib/TtyStream');
+
+const HISTORY_FILE = '/.brsh_history';
 
 const builtins = require('./lib/builtins');
 const localCommands = require('./lib/local');
@@ -73,6 +76,35 @@ class Shell extends EventEmitter {
         this._suppressMotd = Boolean(command);
         this._loadingFs = null;
         this._queuedWhileLoading = false;
+
+        this.stdinStream = new TtyStream({ columns: 80, rows: 24 });
+        this.stdout = new TtyStream({
+            columns: 80,
+            rows: 24,
+            onWrite: (chunk) => this.emit('data', chunk)
+        });
+        this.stderr = new TtyStream({
+            columns: 80,
+            rows: 24,
+            onWrite: (chunk) => this.emit('data', chunk)
+        });
+
+        this._lineBuffer = [];
+        this._cursorPos = 0;
+        this._history = [];
+        this._historyPos = null;
+        this._savedInput = null;
+        this._historyLoaded = false;
+        this._working = true;
+        this._promptReady = false;
+        this._inProgressLine = false;
+        this._fromLineEditor = false;
+        this._lastPromptRowOffset = 0;
+        this._pendingCommands = [];
+
+        if (!subshell) {
+            this._setupTtyStreams();
+        }
 
         if (useRealFilesystem) {
             this.context.setNodeFilesystem(cwd);
@@ -186,8 +218,21 @@ class Shell extends EventEmitter {
         return this._lastCode;
     }
 
+    get stdin() {
+        return this._stdin !== undefined ? this._stdin : this.stdinStream;
+    }
+
     set stdin(data) {
         this._stdin = data;
+    }
+
+    write(data) {
+        this.stdinStream.pushData(data);
+        return true;
+    }
+
+    resize(cols, rows) {
+        this.setTerminalSize(cols, rows);
     }
 
     onInput(char) {
@@ -201,6 +246,14 @@ class Shell extends EventEmitter {
         this._terminalSize = { cols, rows };
         this.context.setVar('COLUMNS', String(cols));
         this.context.setVar('LINES', String(rows));
+        this.stdinStream.resize(cols, rows);
+        this.stdout.resize(cols, rows);
+        this.stderr.resize(cols, rows);
+        if (this.runningCommand) {
+            if (this.runningCommand.stdinStream) this.runningCommand.stdinStream.resize(cols, rows);
+            if (this.runningCommand.stdout) this.runningCommand.stdout.resize(cols, rows);
+            if (this.runningCommand.stderr) this.runningCommand.stderr.resize(cols, rows);
+        }
         this.emit('resize', { cols, rows });
     }
 
@@ -339,6 +392,13 @@ class Shell extends EventEmitter {
     }
 
     onCommand(raw, events = true) {
+        if (events && !this._subshell && this._promptReady && !this._fromLineEditor) {
+            this.stdout.write(`\r${this.getPrompt()} ${raw}\x1b[K\r\n`);
+            this._lineBuffer = [];
+            this._cursorPos = 0;
+        }
+        this._fromLineEditor = false;
+
         const segments = this._splitInput(raw);
         const groups = this._groupPipes(segments);
         let shouldRun = true;
@@ -477,6 +537,17 @@ class Shell extends EventEmitter {
             this.runningCommand.on('flush', lines => {
                 this._emitOutput(lines);
             });
+            this.runningCommand.on('stdout', chunk => {
+                if (redirectPath) {
+                    instance.stdOut = String(chunk ?? '');
+                } else {
+                    this.stdout.write(chunk);
+                    this.emit('stdOutRaw', chunk);
+                }
+            });
+            this.runningCommand.on('stderr', chunk => {
+                this.stderr.write(chunk);
+            });
         }
         if (instance.interactive) {
             this.emit('interactive');
@@ -540,7 +611,408 @@ class Shell extends EventEmitter {
     }
 
     clear() {
+        this.stdout.write('\x1b[2J\x1b[3J\x1b[H');
         this.emit('clear');
+    }
+
+    _setupTtyStreams() {
+        this.on('stdOut', line => {
+            if (this.runningCommand && (this.runningCommand.interactive || this.runningCommand._inAltScreen)) {
+                this.stdout.write(String(line ?? ''));
+                return;
+            }
+            if (typeof line === 'string' && line.startsWith('\r')) {
+                this._inProgressLine = true;
+                this.stdout.write('\r\x1b[K' + line.slice(1));
+                return;
+            }
+            if (this._inProgressLine) {
+                this.stdout.write('\r\n');
+                this._inProgressLine = false;
+            }
+            this.stdout.write(String(line ?? '') + '\r\n');
+        });
+
+        this.on('stdErr', line => {
+            if (this.runningCommand && (this.runningCommand.interactive || this.runningCommand._inAltScreen)) {
+                return;
+            }
+            if (this._inProgressLine) {
+                this.stdout.write('\r\n');
+                this._inProgressLine = false;
+            }
+            this.stderr.write(String(line ?? '') + '\r\n');
+        });
+
+        this.on('status', status => {
+            if (status === Shell.STATUS_READY) {
+                if (this._inProgressLine) {
+                    this.stdout.write('\r\n');
+                    this._inProgressLine = false;
+                }
+                this._working = false;
+                this._promptReady = true;
+                if (!this._historyLoaded) {
+                    this._loadHistory();
+                    this._historyLoaded = true;
+                }
+                this._redrawPromptLine();
+                if (this._pendingCommands.length > 0) {
+                    const nextCmd = this._pendingCommands.shift();
+                    if (this._pendingCommands.length === 0) {
+                        const flags = this.context.getVar('-');
+                        if (flags && flags.includes('c')) {
+                            this.context.setVar('-', flags.replace(/c/g, ''));
+                        }
+                    }
+                    this.sendCommand(nextCmd);
+                }
+            } else {
+                this._working = true;
+            }
+        });
+
+        this.stdinStream.on('data', data => this._handleStdinData(data));
+        this.stdinStream.on('end', () => {
+            if (!this.destroyed) this.destroy(0);
+        });
+    }
+
+    sendCommand(command) {
+        if (!this._promptReady) {
+            this.suppressMotd();
+            this._pendingCommands.push(command);
+            return;
+        }
+        this.onCommand(command);
+    }
+
+    _redrawPromptLine() {
+        if (this._working || (this.runningCommand && (this.runningCommand.interactive || this.runningCommand._inAltScreen))) {
+            return;
+        }
+        const prompt = `${this.getPrompt()} `;
+        const text = this._lineBuffer.join('');
+        const cols = (this._terminalSize && this._terminalSize.cols) || 80;
+        const prevRowOffset = this._lastPromptRowOffset || 0;
+
+        let seq = '';
+        if (prevRowOffset > 0) {
+            seq += `\x1b[${prevRowOffset}A`;
+        }
+        seq += `\r\x1b[J${prompt}${text}`;
+
+        const pos = Math.min(this._cursorPos, this._lineBuffer.length);
+        const endPos = prompt.length + this._lineBuffer.length;
+        const targetPos = prompt.length + pos;
+
+        const endRowOffset = Math.floor(endPos / cols);
+        const targetRowOffset = Math.floor(targetPos / cols);
+        const targetCol = targetPos % cols;
+
+        if (endRowOffset > targetRowOffset) {
+            seq += `\x1b[${endRowOffset - targetRowOffset}A\r`;
+            if (targetCol > 0) {
+                seq += `\x1b[${targetCol}C`;
+            }
+        } else if (endPos > targetPos) {
+            const diff = endPos - targetPos;
+            seq += `\x1b[${diff}D`;
+        }
+
+        this._lastPromptRowOffset = targetRowOffset;
+        this.stdout.write(seq);
+    }
+
+    _loadHistory() {
+        try {
+            const file = this.context.fs._getFileRaw(HISTORY_FILE);
+            if (file && typeof file === 'string' && file.length > 0) {
+                this._history = file.split('\n').filter(l => l.length > 0);
+            }
+        } catch (e) {
+            // No history file yet
+        }
+    }
+
+    _saveHistory() {
+        try {
+            this.context.fs._setFileRaw(HISTORY_FILE, this._history.join('\n'), true);
+        } catch (e) {
+            // Ignore persistence errors
+        }
+    }
+
+    _navigateHistory(direction) {
+        if (this._history.length === 0) return;
+        if (direction === -1) {
+            if (this._historyPos === null) {
+                this._savedInput = [...this._lineBuffer];
+                this._historyPos = this._history.length - 1;
+            } else if (this._historyPos > 0) {
+                this._historyPos--;
+            } else {
+                return;
+            }
+            this._lineBuffer = Array.from(this._history[this._historyPos]);
+        } else {
+            if (this._historyPos === null) return;
+            if (this._historyPos < this._history.length - 1) {
+                this._historyPos++;
+                this._lineBuffer = Array.from(this._history[this._historyPos]);
+            } else {
+                this._historyPos = null;
+                this._lineBuffer = this._savedInput ? [...this._savedInput] : [];
+                this._savedInput = null;
+            }
+        }
+        this._cursorPos = this._lineBuffer.length;
+        this._redrawPromptLine();
+    }
+
+    _wordLeft() {
+        let pos = this._cursorPos;
+        while (pos > 0 && this._lineBuffer[pos - 1] === ' ') pos--;
+        while (pos > 0 && this._lineBuffer[pos - 1] !== ' ') pos--;
+        return pos;
+    }
+
+    _wordRight() {
+        let pos = this._cursorPos;
+        const len = this._lineBuffer.length;
+        while (pos < len && this._lineBuffer[pos] === ' ') pos++;
+        while (pos < len && this._lineBuffer[pos] !== ' ') pos++;
+        return pos;
+    }
+
+    _handleStdinData(raw) {
+        const data = typeof raw === 'string'
+            ? raw
+            : (raw instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(raw)))
+                ? new TextDecoder().decode(raw)
+                : String(raw ?? '');
+
+        if (this.runningCommand) {
+            const cmd = this.runningCommand;
+            const hasStreamListeners = cmd.stdinStream && cmd.stdinStream.listenerCount('data') > 1;
+            if (cmd.captureInput || cmd.interactive || cmd._inAltScreen || hasStreamListeners) {
+                cmd.stdinStream.pushData(raw);
+                return;
+            }
+        }
+
+        if (this._working) return;
+
+        let i = 0;
+        while (i < data.length) {
+            const ch = data[i];
+            const code = data.charCodeAt(i);
+
+            if (code === 0x1b) {
+                if (data[i + 1] === 'b') {
+                    this._cursorPos = this._wordLeft();
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data[i + 1] === 'f') {
+                    this._cursorPos = this._wordRight();
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data.charCodeAt(i + 1) === 0x7f || data.charCodeAt(i + 1) === 0x08) {
+                    const target = this._wordLeft();
+                    this._lineBuffer.splice(target, this._cursorPos - target);
+                    this._cursorPos = target;
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data[i + 1] === 'd') {
+                    const target = this._wordRight();
+                    this._lineBuffer.splice(this._cursorPos, target - this._cursorPos);
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data[i + 1] === '[' || data[i + 1] === 'O') {
+                    let j = i + 2;
+                    while (j < data.length && data.charCodeAt(j) >= 0x20 && data.charCodeAt(j) <= 0x3f) {
+                        j++;
+                    }
+                    if (j < data.length) {
+                        this._handleEscapeSeq(data.slice(i + 2, j + 1));
+                        i = j + 1;
+                        continue;
+                    }
+                }
+                i++;
+                continue;
+            }
+
+            if (code === 0x04) {
+                if (this._lineBuffer.length === 0) {
+                    this.stdout.write('exit\r\n');
+                    this.destroy(0);
+                    return;
+                }
+                if (this._cursorPos < this._lineBuffer.length) {
+                    this._lineBuffer.splice(this._cursorPos, 1);
+                    this._redrawPromptLine();
+                }
+                i++;
+                continue;
+            }
+
+            if (code === 0x0d || code === 0x0a) {
+                const command = this._lineBuffer.join('');
+                this._lineBuffer = [];
+                this._cursorPos = 0;
+                this._historyPos = null;
+                this._savedInput = null;
+                this.stdout.write('\r\n');
+
+                if (command.trim()) {
+                    if (this._history[this._history.length - 1] !== command) {
+                        this._history.push(command);
+                    }
+                    this._saveHistory();
+                }
+
+                this._fromLineEditor = true;
+                this.onCommand(command);
+                if (code === 0x0d && data[i + 1] === '\n') i++;
+                i++;
+                continue;
+            }
+
+            if (code === 0x7f || code === 0x08) {
+                if (this._cursorPos > 0) {
+                    this._lineBuffer.splice(this._cursorPos - 1, 1);
+                    this._cursorPos--;
+                    this._redrawPromptLine();
+                }
+                i++;
+                continue;
+            }
+
+            if (code === 0x09) {
+                this._handleTab();
+                i++;
+                continue;
+            }
+
+            if (code === 0x01) {
+                this._cursorPos = 0;
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x05) {
+                this._cursorPos = this._lineBuffer.length;
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x15) {
+                this._lineBuffer.splice(0, this._cursorPos);
+                this._cursorPos = 0;
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x0b) {
+                this._lineBuffer.splice(this._cursorPos);
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x17) {
+                const target = this._wordLeft();
+                this._lineBuffer.splice(target, this._cursorPos - target);
+                this._cursorPos = target;
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x0c) {
+                this.stdout.write('\x1b[2J\x1b[H');
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+            if (code === 0x03) {
+                this._lineBuffer = [];
+                this._cursorPos = 0;
+                this._historyPos = null;
+                this._savedInput = null;
+                this.stdout.write('^C\r\n');
+                this._redrawPromptLine();
+                i++;
+                continue;
+            }
+
+            if (code >= 0x20) {
+                this._lineBuffer.splice(this._cursorPos, 0, ch);
+                this._cursorPos++;
+                this._redrawPromptLine();
+            }
+            i++;
+        }
+    }
+
+    _handleEscapeSeq(seq) {
+        if (seq === 'A') {
+            this._navigateHistory(-1);
+        } else if (seq === 'B') {
+            this._navigateHistory(1);
+        } else if (seq === 'C') {
+            if (this._cursorPos < this._lineBuffer.length) {
+                this._cursorPos++;
+                this._redrawPromptLine();
+            }
+        } else if (seq === 'D') {
+            if (this._cursorPos > 0) {
+                this._cursorPos--;
+                this._redrawPromptLine();
+            }
+        } else if (seq === '1;3D' || seq === '1;5D') {
+            this._cursorPos = this._wordLeft();
+            this._redrawPromptLine();
+        } else if (seq === '1;3C' || seq === '1;5C') {
+            this._cursorPos = this._wordRight();
+            this._redrawPromptLine();
+        } else if (seq === 'H' || seq === '1~' || seq === '7~') {
+            this._cursorPos = 0;
+            this._redrawPromptLine();
+        } else if (seq === 'F' || seq === '4~' || seq === '8~') {
+            this._cursorPos = this._lineBuffer.length;
+            this._redrawPromptLine();
+        } else if (seq === '3~') {
+            if (this._cursorPos < this._lineBuffer.length) {
+                this._lineBuffer.splice(this._cursorPos, 1);
+                this._redrawPromptLine();
+            }
+        }
+    }
+
+    _handleTab() {
+        const commandParts = this._lineBuffer.join('').split(' ');
+        const lastPath = commandParts.pop();
+        const autoComplete = this.tabCompletion(lastPath);
+        if (!autoComplete) return;
+
+        const { options, path } = autoComplete;
+        if (options.length === 1) {
+            commandParts.push(`${path != null ? path.concat('/') : ''}${options[0]}`);
+            this._lineBuffer = commandParts.join(' ').split('');
+            this._cursorPos = this._lineBuffer.length;
+            this._redrawPromptLine();
+        } else if (options.length > 1) {
+            this.stdout.write('\r\n' + options.join('  ') + '\r\n');
+            this._redrawPromptLine();
+        }
     }
 
     _splitInput(input) {

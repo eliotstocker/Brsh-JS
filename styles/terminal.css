@@ -22,13 +22,31 @@
     line-height: 1.15em;
 }
 
+.terminal__cursor.block,
 .terminal__cursor.blink {
-    animation: 1s blink 500ms step-end infinite;
+    background-color: currentColor;
+    -webkit-text-fill-color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
+    color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
 }
 
-.terminal__cursor.block {
+.terminal__cursor.blink {
+    animation: 1s blink step-end infinite;
+}
+
+.terminal__inverse {
     background-color: currentColor;
+    -webkit-text-fill-color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
     color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
+}
+
+.terminal__blink {
+    animation: 1s blink-text step-end infinite;
+}
+
+.terminal__link {
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
 }
 
 .terminal__line {
@@ -45,13 +63,24 @@
 }
 
 @keyframes blink {
-    from, to {
+    from, 49.9% {
         background-color: currentColor;
         -webkit-text-fill-color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
+        color: rgb(from currentColor calc(255 - r) calc(255 - g) calc(255 - b));
     }
-    50% {
+    50%, to {
         background-color: transparent;
         -webkit-text-fill-color: unset;
+        color: inherit;
+    }
+}
+
+@keyframes blink-text {
+    from, 49.9% {
+        opacity: 1;
+    }
+    50%, to {
+        opacity: 0;
     }
 }
 
