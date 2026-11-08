@@ -508,7 +508,7 @@ function createTestWbt() {
             return null;
         },
         fetch: async (url) => {
-            if (url === 'https://example.com/hello.wasm') {
+            if (url === 'https://example.com/hello.wasm' || /\.wasm(\?.*)?$/i.test(url)) {
                 return {
                     ok: true,
                     status: 200,
@@ -622,6 +622,29 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         const { errors, exitCode } = await run(shell, 'wbt install nonexistent-wasm-pkg');
         expect(exitCode).toBe(100);
         expect(errors.join(' ')).toContain('Unable to locate package nonexistent-wasm-pkg');
+    });
+
+    it('pulls and persists the .wasm binary to /var/lib/wbt/wasm/<pkg>.wasm on `wbt install` and removes it on `wbt remove`', async () => {
+        const fetchedUrls = [];
+        const BaseWbt = createTestWbt();
+        const TrackingWbt = BaseWbt.configure({
+            fetch: async (url) => {
+                fetchedUrls.push(url);
+                return BaseWbt._config.fetch(url);
+            }
+        });
+        shell.context.setCommand(TrackingWbt);
+
+        const installRes = await run(shell, 'wbt install sqlite3');
+        expect(installRes.exitCode).toBe(0);
+        expect(fetchedUrls.some(u => u.includes('sql-wasm.wasm'))).toBe(true);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(true);
+
+        const showRes = await run(shell, 'wbt show sqlite3');
+        expect(showRes.output.join('\n')).toContain('WASM-File: /var/lib/wbt/wasm/sqlite3.wasm');
+
+        await run(shell, 'wbt remove sqlite3');
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(false);
     });
 
     it('removes an installed package and unregisters its binary from /bin', async () => {
@@ -1169,7 +1192,3 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(modelsRes.output.join('\n')).toContain('persisted (fs)');
     });
 });
-
-
-
-
