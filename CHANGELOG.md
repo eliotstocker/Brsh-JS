@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.0.0...v3.1.0) (2026-11-08)
+
+
+### Features
+
+* **wbt:** add nano-wasm to curated package registry ([bb78039](https://github.com/eliotstocker/Brsh-JS/commit/bb78039c067c6b3fd6f902ebe74cb5cd2ccdba99))
+
 # [3.0.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.8.1...v3.0.0) (2026-11-08)
 
 
