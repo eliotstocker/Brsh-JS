@@ -1,3 +1,16 @@
+# [2.8.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.7.0...v2.8.0) (2026-11-08)
+
+
+### Bug Fixes
+
+* **ci:** add pretest build and ensure dist/terminal.cjs.js exists for tests ([cb88ea4](https://github.com/eliotstocker/Brsh-JS/commit/cb88ea45f338db25efc0d7c65953f101d990be07))
+
+
+### Features
+
+* **terminal:** externalize Shell dependency to reduce bundle size ([d2f8dd9](https://github.com/eliotstocker/Brsh-JS/commit/d2f8dd93155d55f1c843192a0d195032c7db95e3))
+* **wbt:** add wllama v3 WebAssembly and WebGPU LLM inference adapter ([#26](https://github.com/eliotstocker/Brsh-JS/issues/26)) ([b7f647d](https://github.com/eliotstocker/Brsh-JS/commit/b7f647d703b4b0f67232f2a234737889e04c0689))
+
 # [2.7.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.6.0...v2.7.0) (2026-11-07)
 
 
