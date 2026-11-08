@@ -465,6 +465,40 @@ describe('brsh Shell Integration, Line Editing, and Full-Screen Apps', () => {
         expect(term.screen.isAltScreen).toBe(false);
         expect(term.getLineText(0)).toContain('brsh:root$ tuicmd');
     });
+
+    it('runs a full-screen ReplCommand (used by wbt interactive REPLs) and restores screen on exit', async () => {
+        class DemoRepl extends Shell.ReplCommand {
+            static get name() { return 'demorepl'; }
+            shouldBeInteractive() { return true; }
+            getReplTitle() { return 'Demo Interactive REPL'; }
+            getReplPrompt() { return 'demo> '; }
+            async evaluateReplLine(line) {
+                return { output: [`result: ${line.toUpperCase()}`] };
+            }
+        }
+
+        shell.context.setCommand(DemoRepl);
+        const replDone = waitForReady(shell);
+        shell.onCommand('demorepl');
+        await new Promise(r => setTimeout(r, 30));
+
+        expect(term.screen.isAltScreen).toBe(true);
+        expect(term.getLineText(0)).toContain('Demo Interactive REPL');
+
+        for (const ch of 'hello repl') term.sendKey(ch);
+        term.sendKey('Enter');
+        await new Promise(r => setTimeout(r, 30));
+
+        expect(term.getScreenText()).toContain('demo> hello repl');
+        expect(term.getScreenText()).toContain('result: HELLO REPL');
+
+        // Exit REPL with Ctrl+D
+        term.sendKey('d', { ctrl: true });
+        await replDone;
+
+        expect(term.screen.isAltScreen).toBe(false);
+        expect(term.getLineText(0)).toContain('brsh:root$ demorepl');
+    });
 });
 
 describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compatibility', () => {
@@ -563,6 +597,75 @@ describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compat
 
             expect(term.getLineText(1)).toBe('step2-rewritten');
             expect(screenText).toContain('ZSH_OK_42');
+        } finally {
+            detach();
+            pty.kill();
+        }
+    });
+
+    it('runs a real OS ncurses (Python curses) full-screen application in a PTY and restores screen on exit', async () => {
+        const term = new Terminal({
+            el: document.createElement('div'),
+            Shell: false,
+            cols: 60,
+            rows: 15
+        });
+
+        term.writeln('Primary shell line before ncurses');
+
+        const cursesScript = [
+            'import curses',
+            'def main(stdscr):',
+            '    curses.curs_set(0)',
+            '    stdscr.clear()',
+            '    win = curses.newwin(6, 30, 2, 4)',
+            '    win.box()',
+            '    win.addstr(1, 2, "Real NCURSES Window")',
+            '    win.addstr(3, 2, "Press j to update, q to quit")',
+            '    stdscr.refresh()',
+            '    win.refresh()',
+            '    while True:',
+            '        ch = win.getch()',
+            '        if ch == ord("j"):',
+            '            win.addstr(2, 2, "State: UPDATED")',
+            '            win.refresh()',
+            '        elif ch == ord("q"):',
+            '            break',
+            'curses.wrapper(main)'
+        ].join('\n');
+
+        const { pty, detach } = term.spawn('python3', ['-c', cursesScript]);
+
+        const waitForScreen = (predicate, timeoutMs = 4000) => {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                const timer = setInterval(() => {
+                    if (predicate()) {
+                        clearInterval(timer);
+                        resolve();
+                    } else if (Date.now() - start > timeoutMs) {
+                        clearInterval(timer);
+                        reject(new Error(`Timed out waiting for curses screen:\n${term.getScreenText()}`));
+                    }
+                }, 20);
+            });
+        };
+
+        try {
+            await waitForScreen(() => term.getScreenText().includes('Real NCURSES Window'));
+            expect(term.screen.isAltScreen).toBe(true);
+            expect(term.getLineText(2)).toContain('┌────────────────────────────┐');
+            expect(term.getLineText(3)).toContain('│ Real NCURSES Window        │');
+
+            // Send 'j' keystroke to update window in-place via ncurses cursor addressing
+            term.sendKey('j');
+            await waitForScreen(() => term.getScreenText().includes('State: UPDATED'));
+            expect(term.getLineText(4)).toContain('│ State: UPDATED             │');
+
+            // Send 'q' keystroke to exit ncurses and restore primary screen
+            term.sendKey('q');
+            await waitForScreen(() => !term.screen.isAltScreen);
+            expect(term.getLineText(0)).toBe('Primary shell line before ncurses');
         } finally {
             detach();
             pty.kill();
