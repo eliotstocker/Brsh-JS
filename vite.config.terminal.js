@@ -6,12 +6,17 @@ export default defineConfig({
         lib: {
             entry: path.resolve(import.meta.dirname, 'lib/Terminal.js'),
             name: 'Terminal',
-            formats: ['es', 'iife'],
-            fileName: (format) => format === 'iife' ? 'terminal.min.js' : 'terminal.es.js'
+            formats: ['es', 'cjs', 'iife'],
+            fileName: (format) => {
+                if (format === 'iife') return 'terminal.min.js';
+                if (format === 'cjs') return 'terminal.cjs.js';
+                return 'terminal.es.js';
+            }
         },
         rollupOptions: {
             external: ['brsh', 'Shell'],
             output: {
+                exports: 'auto',
                 globals: {
                     brsh: 'globalThis.Shell',
                     Shell: 'globalThis.Shell'

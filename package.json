@@ -12,7 +12,7 @@
     },
     "./terminal": {
       "import": "./dist/terminal.es.js",
-      "require": "./dist/terminal.min.js",
+      "require": "./dist/terminal.cjs.js",
       "default": "./dist/terminal.min.js"
     },
     "./wbt": {

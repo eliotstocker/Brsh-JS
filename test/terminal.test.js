@@ -88,4 +88,19 @@ describe('Terminal decoupling and Shell resolution', () => {
             });
         }).toThrow(/Shell is required by Terminal/);
     });
+
+    it('can be required as a CommonJS module via dist/terminal.cjs.js', () => {
+        const { createRequire } = require('module');
+        const cjsRequire = createRequire(import.meta.url);
+        const CjsTerminal = cjsRequire('../dist/terminal.cjs.js');
+        const TermClass = CjsTerminal.default || CjsTerminal;
+        expect(typeof TermClass).toBe('function');
+
+        const customShell = new Shell({ cwd: '/test' });
+        const term = new TermClass({
+            el: document.createElement('div'),
+            cli: customShell
+        });
+        expect(term.cli).toBe(customShell);
+    });
 });
