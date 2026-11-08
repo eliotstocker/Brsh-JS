@@ -391,6 +391,62 @@ describe('brsh Shell Integration, Line Editing, and Full-Screen Apps', () => {
         // Navigate history up
         term.sendKey('ArrowUp');
         expect(term.getLineText(2)).toBe('brsh:root$ echo hello world');
+
+        // Delete word with Alt+Backspace
+        term.sendKey('Backspace', { alt: true });
+        expect(term.getLineText(2)).toBe('brsh:root$ echo hello');
+    });
+
+    it('edits wrapped input lines in-place on backspace without repeating onto next line', async () => {
+        const narrowShell = new Shell({
+            filesystem: { root: {} },
+            cwd: '/root',
+            hostname: 'brsh'
+        });
+        const ready = waitForReady(narrowShell);
+        // Narrow terminal to 40 columns so input easily wraps
+        const narrowTerm = new Terminal({
+            el: document.createElement('div'),
+            cli: narrowShell,
+            cols: 40,
+            rows: 10
+        });
+        await ready;
+
+        // Prompt is 'brsh:root$ ' (11 chars). Typing 35 chars = 46 chars total (row 0 has 40, row 1 has 6).
+        for (const ch of '12345678901234567890123456789012345') narrowTerm.sendKey(ch);
+        expect(narrowTerm.getLineText(0)).toBe('brsh:root$ 12345678901234567890123456789');
+        expect(narrowTerm.getLineText(1)).toBe('012345');
+        expect(narrowTerm.screen.cursorRow).toBe(1);
+
+        // Backspace should edit row 1 in-place rather than repeating the line onto row 2
+        narrowTerm.sendKey('Backspace');
+        expect(narrowTerm.getLineText(0)).toBe('brsh:root$ 12345678901234567890123456789');
+        expect(narrowTerm.getLineText(1)).toBe('01234');
+        expect(narrowTerm.getLineText(2)).toBe('');
+        expect(narrowTerm.screen.cursorRow).toBe(1);
+
+        // Backspacing across the wrap boundary restores cursor cleanly back to row 0
+        for (let i = 0; i < 5; i++) narrowTerm.sendKey('Backspace');
+        expect(narrowTerm.getLineText(0)).toBe('brsh:root$ 12345678901234567890123456789');
+        expect(narrowTerm.getLineText(1)).toBe('');
+        narrowTerm.sendKey('Backspace');
+        expect(narrowTerm.getLineText(0)).toBe('brsh:root$ 1234567890123456789012345678');
+        expect(narrowTerm.screen.cursorRow).toBe(0);
+        expect(narrowTerm.screen.cursorCol).toBe(39);
+    });
+
+    it('keeps cursor element visible when arrowing through input in blink mode', async () => {
+        expect(term.renderer.cursorStyle).toBe('blink');
+        for (const ch of 'abcde') term.sendKey(ch);
+
+        // Arrow left across input characters; cursor span is rendered on each step
+        const rowEl = term._cmdList.children[0];
+        term.sendKey('ArrowLeft');
+        expect(rowEl.innerHTML).toContain('class="terminal__cursor blink">e</span>');
+
+        term.sendKey('ArrowLeft');
+        expect(rowEl.innerHTML).toContain('class="terminal__cursor blink">d</span>');
     });
 
     it('runs pico in the alternate screen buffer and restores shell screen on exit', async () => {

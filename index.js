@@ -99,6 +99,7 @@ class Shell extends EventEmitter {
         this._promptReady = false;
         this._inProgressLine = false;
         this._fromLineEditor = false;
+        this._lastPromptRowOffset = 0;
         this._pendingCommands = [];
 
         if (!subshell) {
@@ -689,12 +690,34 @@ class Shell extends EventEmitter {
         }
         const prompt = `${this.getPrompt()} `;
         const text = this._lineBuffer.join('');
-        const pos = Math.min(this._cursorPos, this._lineBuffer.length);
-        const tailLen = this._lineBuffer.length - pos;
-        let seq = `\r${prompt}${text}\x1b[K`;
-        if (tailLen > 0) {
-            seq += `\x1b[${tailLen}D`;
+        const cols = (this._terminalSize && this._terminalSize.cols) || 80;
+        const prevRowOffset = this._lastPromptRowOffset || 0;
+
+        let seq = '';
+        if (prevRowOffset > 0) {
+            seq += `\x1b[${prevRowOffset}A`;
         }
+        seq += `\r\x1b[J${prompt}${text}`;
+
+        const pos = Math.min(this._cursorPos, this._lineBuffer.length);
+        const endPos = prompt.length + this._lineBuffer.length;
+        const targetPos = prompt.length + pos;
+
+        const endRowOffset = Math.floor(endPos / cols);
+        const targetRowOffset = Math.floor(targetPos / cols);
+        const targetCol = targetPos % cols;
+
+        if (endRowOffset > targetRowOffset) {
+            seq += `\x1b[${endRowOffset - targetRowOffset}A\r`;
+            if (targetCol > 0) {
+                seq += `\x1b[${targetCol}C`;
+            }
+        } else if (endPos > targetPos) {
+            const diff = endPos - targetPos;
+            seq += `\x1b[${diff}D`;
+        }
+
+        this._lastPromptRowOffset = targetRowOffset;
         this.stdout.write(seq);
     }
 
@@ -791,6 +814,21 @@ class Shell extends EventEmitter {
                 }
                 if (data[i + 1] === 'f') {
                     this._cursorPos = this._wordRight();
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data.charCodeAt(i + 1) === 0x7f || data.charCodeAt(i + 1) === 0x08) {
+                    const target = this._wordLeft();
+                    this._lineBuffer.splice(target, this._cursorPos - target);
+                    this._cursorPos = target;
+                    this._redrawPromptLine();
+                    i += 2;
+                    continue;
+                }
+                if (data[i + 1] === 'd') {
+                    const target = this._wordRight();
+                    this._lineBuffer.splice(this._cursorPos, target - this._cursorPos);
                     this._redrawPromptLine();
                     i += 2;
                     continue;
