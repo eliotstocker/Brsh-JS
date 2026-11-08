@@ -1365,7 +1365,43 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`, `
         await cmdPromise;
         shell.removeListener('stdOut', onOut);
     });
+
+    it('persists pulled remote models to the brsh filesystem via `--persist`, `-o`, and `wllama pull`', async () => {
+        // 1. Run with `--persist` (saves to default /var/cache/wllama/<filename>.gguf)
+        const persistRes = await run(
+            shell,
+            'wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M --persist -p "Persist test"'
+        );
+        expect(persistRes.exitCode).toBe(0);
+        expect(persistRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): Persist test');
+        expect(shell.context.fs.exists('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf')).toBe(true);
+
+        // 2. Run with `-o` / `--output` to persist to a custom path
+        const outRes = await run(
+            shell,
+            'wllama -m https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf -o /home/saved-stories.gguf -p "Saved custom"'
+        );
+        expect(outRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/home/saved-stories.gguf')).toBe(true);
+
+        // 3. Dedicated `wllama pull` subcommand
+        const pullRes = await run(
+            shell,
+            'wllama pull hf:bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M -o /home/smol.gguf'
+        );
+        expect(pullRes.exitCode).toBe(0);
+        expect(pullRes.output.join('\n')).toContain('Persisted model');
+        expect(pullRes.output.join('\n')).toContain('/home/smol.gguf');
+        expect(shell.context.fs.exists('/home/smol.gguf')).toBe(true);
+
+        // 4. Verify `wllama models` lists persisted models in `/var/cache/wllama`
+        const modelsRes = await run(shell, 'wllama models');
+        expect(modelsRes.exitCode).toBe(0);
+        expect(modelsRes.output.join('\n')).toContain('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf');
+        expect(modelsRes.output.join('\n')).toContain('persisted (fs)');
+    });
 });
+
 
 
 

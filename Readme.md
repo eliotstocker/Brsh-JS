@@ -253,7 +253,8 @@ wbt install wllama pglite sqlite3 assemblyscript jq python3 duckdb graphviz ffmp
 
 # Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions, interactive chat REPL, or as an OpenAI-compatible server daemon!
 wllama -m /home/model.gguf -p "Explain WebGPU in one sentence."
-wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M -p "Hello!"
+wllama --hf Qwen/Qwen2.5-0.5B-Instruct-GGUF --quant Q4_K_M --persist -p "Hello!" # pulls & persists model to /var/cache/wllama/
+wllama pull hf:bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M -o /home/smol.gguf
 wllama -m /home/model.gguf # launches interactive multi-turn chat REPL
 llama-server -m /home/model.gguf -p 8080
 curl -s http://localhost:8080/v1/chat/completions -d '{"messages":[{"role":"user","content":"Hello!"}]}'
