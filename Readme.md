@@ -261,7 +261,7 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 ## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `nano`, `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). It is **not** included in the default shell bundle unless you explicitly register it.
 
 ### Enabling `wbt`
 
@@ -318,10 +318,13 @@ wbt show sqlite3
 wbt update
 
 # Install curated WASM packages into /bin
-wbt install wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
+wbt install nano wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
 
 # Run a package directly without permanently installing it
 wbt run jq -r ".name" package.json
+
+# Run GNU nano text editor (compiled to WebAssembly with wide-char ncurses and built-in terminfo)
+nano /home/hello.txt
 
 # Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
 wllama -m /home/model.gguf -p "Explain WebGPU in one sentence."

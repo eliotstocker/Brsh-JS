@@ -3,8 +3,20 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
+const path = require('path');
+const fs = require('fs');
 const Wbt = require('../lib/wbt/index.js');
 const { wllamaInstances } = require('../lib/wbt/packages/wllama.js');
+
+const NANO_WASM_PATH = path.resolve(import.meta.dirname, '../../nano-wasm/dist/nano.wasm');
+const NANO_WASM_BYTES = (() => {
+    try {
+        if (fs.existsSync(NANO_WASM_PATH)) {
+            return new Uint8Array(fs.readFileSync(NANO_WASM_PATH));
+        }
+    } catch { /* ignore */ }
+    return null;
+})();
 
 // Minimal valid WASM binary that exits cleanly with 0 via _start:
 // (module (func (export "_start")))
@@ -508,6 +520,13 @@ function createTestWbt() {
             return null;
         },
         fetch: async (url) => {
+            if ((url.includes('nano-wasm') || url.includes('nano.wasm')) && NANO_WASM_BYTES) {
+                return {
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () => NANO_WASM_BYTES.buffer
+                };
+            }
             if (url === 'https://example.com/hello.wasm' || /\.wasm(\?.*)?$/i.test(url)) {
                 return {
                     ok: true,
@@ -1192,3 +1211,76 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(modelsRes.output.join('\n')).toContain('persisted (fs)');
     });
 });
+
+describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell();
+        shell.context.setCommand(createTestWbt());
+    });
+
+    it('registers nano and nano-wasm in registry, wbt search, and wbt show', async () => {
+        const listRes = await run(shell, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(listRes.output.join('\n')).toContain('nano/wasm 8.0.0');
+
+        const searchRes = await run(shell, 'wbt search editor');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('nano');
+
+        const showRes = await run(shell, 'wbt show nano');
+        expect(showRes.exitCode).toBe(0);
+        expect(showRes.output.join('\n')).toContain('Package: nano');
+        expect(showRes.output.join('\n')).toContain('Version: 8.0.0');
+        expect(showRes.output.join('\n')).toContain('Aliases: nano-wasm');
+
+        const showAliasRes = await run(shell, 'wbt show nano-wasm');
+        expect(showAliasRes.exitCode).toBe(0);
+        expect(showAliasRes.output.join('\n')).toContain('Package: nano');
+    });
+
+    it('installs nano and nano-wasm into /bin and runs --version and --help', async () => {
+        const installRes = await run(shell, 'wbt install nano');
+        expect(installRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/nano')).toBe(true);
+        expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
+
+        const verRes = await run(shell, 'nano --version');
+        expect(verRes.exitCode).toBe(0);
+        expect(verRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+
+        const helpRes = await run(shell, 'nano --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toMatch(/Usage:\s+nano/i);
+
+        const aliasVerRes = await run(shell, 'nano-wasm --version');
+        expect(aliasVerRes.exitCode).toBe(0);
+        expect(aliasVerRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+    });
+
+    it('supports wbt run nano --version without permanently installing', async () => {
+        const runRes = await run(shell, 'wbt run nano --version');
+        expect(runRes.exitCode).toBe(0);
+        expect(runRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+        expect(shell.context.fs.exists('/bin/nano')).toBe(false);
+    });
+
+    it('removes nano and unregisters both nano and nano-wasm from /bin', async () => {
+        await run(shell, 'wbt install nano-wasm');
+        expect(shell.context.fs.exists('/bin/nano')).toBe(true);
+        expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+
+        const rmRes = await run(shell, 'wbt remove nano');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/nano')).toBe(false);
+        expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(false);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(false);
+    });
+});
+
+
+
+
