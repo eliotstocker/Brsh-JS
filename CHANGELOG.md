@@ -1,3 +1,10 @@
+## [2.8.1](https://github.com/eliotstocker/Brsh-JS/compare/v2.8.0...v2.8.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **wbt:** eagerly pull and persist .wasm binaries on install, upgrade jq-web@0.6.2, and fix browser bundling ([#29](https://github.com/eliotstocker/Brsh-JS/issues/29)) ([e713798](https://github.com/eliotstocker/Brsh-JS/commit/e713798656926a8b2afce9571a853ffc928099c1))
+
 # [2.8.0](https://github.com/eliotstocker/Brsh-JS/compare/v2.7.0...v2.8.0) (2026-11-08)
 
 
