@@ -302,5 +302,9 @@ if (useBinaryContainer) {
                 console.log(`Compressed bundle written to ${gzPath}`);
             }
             console.log('Build succeeded');
+        })
+        .catch(err => {
+            console.error(err);
+            process.exit(1);
         });
 }

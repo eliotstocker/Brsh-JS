@@ -616,7 +616,19 @@ describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compat
         expect(term.getLineText(0)).toBe('Shell history before TUI');
     });
 
-    it('spawns and interacts with a real /bin/zsh process in a PTY', async () => {
+    it('spawns and interacts with a real shell process in a PTY', async () => {
+        const req = typeof require === 'function' ? require : null;
+        const fs = req ? req('fs') : null;
+        const candidates = [
+            { cmd: '/bin/zsh', args: ['-f'], prompt: 'zsh-pty$ ', promptRegex: /zsh-pty\$/ },
+            { cmd: '/usr/bin/zsh', args: ['-f'], prompt: 'zsh-pty$ ', promptRegex: /zsh-pty\$/ },
+            { cmd: '/bin/bash', args: ['--norc', '--noprofile'], prompt: 'bash-pty$ ', promptRegex: /bash-pty\$/ },
+            { cmd: '/usr/bin/bash', args: ['--norc', '--noprofile'], prompt: 'bash-pty$ ', promptRegex: /bash-pty\$/ },
+            { cmd: '/bin/sh', args: [], prompt: 'sh-pty$ ', promptRegex: /sh-pty\$/ }
+        ];
+        const match = candidates.find(c => fs && fs.existsSync(c.cmd));
+        if (!match) return;
+
         const term = new Terminal({
             el: document.createElement('div'),
             Shell: false,
@@ -624,8 +636,8 @@ describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compat
             rows: 24
         });
 
-        const { pty, detach } = term.spawn('/bin/zsh', ['-f'], {
-            env: { PS1: 'zsh-pty$ ' }
+        const { pty, detach } = term.spawn(match.cmd, match.args, {
+            env: { PS1: match.prompt }
         });
 
         const waitForScreenMatch = (regex, timeoutMs = 4000) => {
@@ -645,14 +657,14 @@ describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compat
         };
 
         try {
-            await waitForScreenMatch(/zsh-pty\$/);
+            await waitForScreenMatch(match.promptRegex);
 
-            // Run a command and an in-place carriage-return line rewrite in real zsh
-            term.onCommand('printf "step1\\rstep2-rewritten\\n"; echo ZSH_OK_$((20 + 22))');
-            const screenText = await waitForScreenMatch(/ZSH_OK_42/);
+            // Run a command and an in-place carriage-return line rewrite in real shell
+            term.onCommand('printf "step1\\rstep2-rewritten\\n"; echo SHELL_OK_$((20 + 22))');
+            const screenText = await waitForScreenMatch(/SHELL_OK_42/);
 
             expect(term.getLineText(1)).toBe('step2-rewritten');
-            expect(screenText).toContain('ZSH_OK_42');
+            expect(screenText).toContain('SHELL_OK_42');
         } finally {
             detach();
             pty.kill();

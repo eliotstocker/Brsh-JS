@@ -60,8 +60,10 @@
   "dependencies": {
     "ansi-colors": "^4.1.3",
     "command-line-args": "^6.0.1",
+    "esbuild": "^0.28.2",
     "esbuild-plugin-polyfill-node": "^0.3.0",
     "string.prototype.matchall": "^4.0.12",
+    "supports-color": "^7.2.0",
     "through2": "^4.0.2",
     "tmp": "^0.2.5"
   }
