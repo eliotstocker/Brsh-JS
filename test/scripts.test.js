@@ -130,6 +130,35 @@ describe('shell script execution', () => {
         expect(errors.length).toBeGreaterThan(0);
         expect(exitCode).toBeGreaterThan(0);
     });
+
+    it('passes positional parameters to a script', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'args.sh': '#!/bin/sh\necho 1: $1\necho 2: $2\necho count: $#\necho all: $@\n'
+                }
+            },
+            permissions: { '/scripts/args.sh': 0o755 }
+        });
+        const { output } = await run(shell, '/scripts/args.sh "hello world" test');
+        expect(output).toContain('1: hello world');
+        expect(output).toContain('2: test');
+        expect(output).toContain('count: 2');
+        expect(output).toContain('all: hello world test');
+    });
+
+    it('forwards "$@" to subcommands within a script', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'forward.sh': '#!/bin/sh\necho "$@"\n'
+                }
+            },
+            permissions: { '/scripts/forward.sh': 0o755 }
+        });
+        const { output } = await run(shell, '/scripts/forward.sh "quoted string"');
+        expect(output).toContain('quoted string');
+    });
 });
 
 // ---------------------------------------------------------------------------

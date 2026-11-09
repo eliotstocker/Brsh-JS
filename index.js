@@ -18,7 +18,7 @@ const BaseFileSystem = require('./lib/BaseFileSystem');
 const BinaryContainer = require('./lib/BinaryContainer');
 const { isAsyncFilesystemSource, resolveFilesystemSource } = BinaryContainer;
 
-const variableRegex = /\$(?:\{([\w\d?#-]+)\}|([\w\d]+|[?#-]))/g;
+const variableRegex = /\$(?:\{([\w\d?#@*-]+)\}|([\w\d]+|[?#@*-]))/g;
 
 
 const EventEmitter = events.EventEmitter || events.default || events;
@@ -1016,8 +1016,7 @@ class Shell extends EventEmitter {
     }
 
     _splitInput(input) {
-        const commentStripped = input.split('#')[0];
-        return this._parseOperators(commentStripped);
+        return this._parseOperators(input);
     }
 
     _parseOperators(input) {
@@ -1031,6 +1030,14 @@ class Shell extends EventEmitter {
             if (ch === "'" && !dq) { sq = !sq; current += ch; i++; continue; }
             if (ch === '"' && !sq) { dq = !dq; current += ch; i++; continue; }
             if (!sq && !dq) {
+                if (ch === '#' && (current.trim() === '' || /\s/.test(input[i - 1]))) {
+                    const nextNewline = input.indexOf('\n', i);
+                    if (nextNewline === -1) {
+                        break;
+                    }
+                    i = nextNewline;
+                    continue;
+                }
                 if (ch === '&' && input[i + 1] === '&') {
                     segments.push({ command: current.trim(), op: '&&' });
                     current = ''; i += 2; continue;
