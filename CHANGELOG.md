@@ -1,3 +1,10 @@
+# [3.6.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.5.0...v3.6.0) (2026-11-09)
+
+
+### Features
+
+* **wbt:** support interactive WASM execution with Asyncify, terminal resizing, and path_rename for nano ([b9d309d](https://github.com/eliotstocker/Brsh-JS/commit/b9d309deb4cde04a83a6bae96f1bdc894749c783))
+
 # [3.5.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.4.0...v3.5.0) (2026-11-09)
 
 
