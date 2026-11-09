@@ -1176,7 +1176,8 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(noStreamRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): No stream');
         expect(noStreamTokens.length).toBe(0);
 
-        // Test status indication (loading model, running inference)
+        // Test status indication (loading model weights, running inference)
+        wllamaInstances.clear();
         const statusUpdates = [];
         const onStatus = (chunk) => statusUpdates.push(chunk);
         shell.stderr.on('data', onStatus);
@@ -1188,8 +1189,9 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
 
         shell.stderr.removeListener('data', onStatus);
         const combinedStatus = statusUpdates.join('');
-        expect(combinedStatus).toMatch(/Loading model|Loaded model/);
+        expect(combinedStatus).toContain('Loading model (tinyllama.gguf) weights');
         expect(combinedStatus).toContain('Running inference');
+        expect(combinedStatus).toMatch(/\[.*\]/);
     });
 
     it('supports Hugging Face model loading (--hf / hf:), embeddings (wllama embed), info, and bench', async () => {
