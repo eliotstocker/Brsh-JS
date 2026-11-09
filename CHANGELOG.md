@@ -1,3 +1,10 @@
+## [3.3.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.3.0...v3.3.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **terminal:** fix repeated character input on mobile virtual keyboards ([731d32f](https://github.com/eliotstocker/Brsh-JS/commit/731d32fe3b1c5b219c822e08c628e06a430e8379))
+
 # [3.3.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.2.0...v3.3.0) (2026-11-09)
 
 
