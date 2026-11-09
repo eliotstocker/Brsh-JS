@@ -1071,4 +1071,74 @@ describe('Output Typing Animation Suppression', () => {
             term.destroy();
         });
     });
+
+    describe('Terminal Resizing and Content Preservation', () => {
+        it('preserves line content cut off when resizing smaller, and restores it when resized bigger', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                cols: 80,
+                rows: 24
+            });
+
+            const longLine = 'Email: eliot@piratemedia.tv (mailto:eliot@piratemedia.tv)';
+            term.write(longLine + '\r\n');
+
+            expect(term.getLineText(0)).toBe(longLine);
+
+            // Resize down to 32 columns: reflows overflow onto next row
+            term.resize(32, 24);
+            expect(term.cols).toBe(32);
+            expect(term.getLineText(0)).toBe(longLine.slice(0, 32));
+            expect(term.getLineText(1)).toBe(longLine.slice(32));
+
+            // In DOM, the reflowed rows are rendered
+            expect(term.renderer._rowElements[0].innerHTML).toContain('Email: eliot@piratemedia.tv (mai');
+            expect(term.renderer._rowElements[1].innerHTML).toContain('lto:eliot@piratemedia.tv)');
+
+            // Resize back bigger to 80 columns: the cut off text unwraps and is fully restored
+            term.resize(80, 24);
+            expect(term.cols).toBe(80);
+            expect(term.getLineText(0)).toBe(longLine);
+            expect(term.getLineText(1)).toBe('');
+
+            // Multiple resize cycles
+            term.resize(20, 24);
+            expect(term.getLineText(0)).toBe(longLine.slice(0, 20));
+            expect(term.getLineText(1)).toBe(longLine.slice(20, 40));
+            expect(term.getLineText(2)).toBe(longLine.slice(40));
+
+            term.resize(100, 24);
+            expect(term.getLineText(0)).toBe(longLine);
+            expect(term.getLineText(1)).toBe('');
+            expect(term.getLineText(2)).toBe('');
+
+            term.destroy();
+        });
+
+        it('clears reflowed line when erased with erase-in-line', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                cols: 80,
+                rows: 24
+            });
+
+            const longLine = 'Email: eliot@piratemedia.tv (mailto:eliot@piratemedia.tv)';
+            term.write(longLine);
+
+            // Resize to 32 cols: wraps onto row 0 and 1
+            term.resize(32, 24);
+            expect(term.getLineText(0)).toBe(longLine.slice(0, 32));
+            expect(term.getLineText(1)).toBe(longLine.slice(32));
+
+            // Move cursor to start of row 0 and erase row 0
+            term.write('\x1b[H\x1b[K');
+            expect(term.getLineText(0)).toBe('');
+
+            term.destroy();
+        });
+    });
 });
