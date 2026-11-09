@@ -1,3 +1,10 @@
+## [3.1.3](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.2...v3.1.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* **terminal:** prevent page scroll and anchor mobile input to viewport ([f1a40ee](https://github.com/eliotstocker/Brsh-JS/commit/f1a40ee46adc6394de100d051aaefcc748fda642))
+
 ## [3.1.2](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.1...v3.1.2) (2026-11-08)
 
 
