@@ -39,6 +39,12 @@ function createMockDom() {
                 if (!this._listeners[ev]) this._listeners[ev] = [];
                 this._listeners[ev].push(fn);
             },
+            removeEventListener(ev, fn) {
+                const list = this._listeners[ev];
+                if (!list) return;
+                const i = list.indexOf(fn);
+                if (i !== -1) list.splice(i, 1);
+            },
             dispatchEvent(ev, payload = {}) {
                 const fns = this._listeners[ev] || [];
                 for (const fn of fns) fn(payload);
@@ -831,5 +837,50 @@ describe('Output Typing Animation Suppression', () => {
         } finally {
             term.reset();
         }
+    });
+
+    describe('mobileInput and destroy cleanup', () => {
+        it('anchors off-screen input at fixed (0, 0) and uses preventScroll', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            expect(input).toBeDefined();
+            expect(input.style.position).toBe('fixed');
+            expect(input.style.top).toBe('0');
+            expect(input.style.left).toBe('0');
+            expect(input.style.width).toBe('0');
+            expect(input.style.height).toBe('0');
+            expect(input.style.opacity).toBe('0');
+            expect(input.style.pointerEvents).toBe('none');
+            expect(input.style.zIndex).toBe('-1');
+            expect(input['aria-hidden']).toBe('true');
+            expect(input.tabindex).toBe('-1');
+
+            let focusedWith = null;
+            input.focus = (opts) => {
+                focusedWith = opts;
+            };
+
+            // Clicking terminal focuses with preventScroll: true
+            el.dispatchEvent('click', { target: el });
+            expect(focusedWith).toEqual({ preventScroll: true });
+
+            // Clicking a link does not trigger focus
+            focusedWith = null;
+            const link = document.createElement('a');
+            el.dispatchEvent('click', { target: link });
+            expect(focusedWith).toBeNull();
+
+            // Destroy removes input from DOM and cleans up
+            expect(el.children).toContain(input);
+            term.destroy();
+            expect(el.children).not.toContain(input);
+            expect(term._mobileInputElement).toBeNull();
+        });
     });
 });
