@@ -1,3 +1,10 @@
+# [3.2.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.4...v3.2.0) (2026-11-09)
+
+
+### Features
+
+* **demo:** add dark mode window wrapper and switch to binary fs ([9335fdb](https://github.com/eliotstocker/Brsh-JS/commit/9335fdbb975f6c1aaf5bbaa1aaa4a2ec0d22aec8))
+
 ## [3.1.4](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.3...v3.1.4) (2026-11-09)
 
 
