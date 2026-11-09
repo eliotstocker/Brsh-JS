@@ -1,3 +1,10 @@
+# [3.4.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.3.1...v3.4.0) (2026-11-09)
+
+
+### Features
+
+* **wllama:** set SmolLM2 as default model and add aliases for smol and qwen ([0cf28a1](https://github.com/eliotstocker/Brsh-JS/commit/0cf28a1a57fc95dc6e90f86de5d9f4eb30e3d467))
+
 ## [3.3.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.3.0...v3.3.1) (2026-11-09)
 
 
