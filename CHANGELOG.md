@@ -1,3 +1,10 @@
+## [3.6.2](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.1...v3.6.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **wasm:** resolve file paths for both relative and absolute guest lookups ([9be39ff](https://github.com/eliotstocker/Brsh-JS/commit/9be39ffa0361cc94907f00c4d98fd9d41dde2d57))
+
 ## [3.6.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.0...v3.6.1) (2026-11-09)
 
 
