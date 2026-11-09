@@ -8,9 +8,13 @@ const fs = require('fs');
 const Wbt = require('../lib/wbt/index.js');
 const { wllamaInstances, DEFAULT_MODEL_URL, MODEL_ALIASES, resolveModelSpec } = require('../lib/wbt/packages/wllama.js');
 
+const FIXTURE_NANO_WASM = path.resolve(import.meta.dirname, 'fixtures/nano.wasm');
 const NANO_WASM_PATH = path.resolve(import.meta.dirname, '../../nano-wasm/dist/nano.wasm');
 const NANO_WASM_BYTES = (() => {
     try {
+        if (fs.existsSync(FIXTURE_NANO_WASM)) {
+            return new Uint8Array(fs.readFileSync(FIXTURE_NANO_WASM));
+        }
         if (fs.existsSync(NANO_WASM_PATH)) {
             return new Uint8Array(fs.readFileSync(NANO_WASM_PATH));
         }
@@ -1414,6 +1418,46 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         const res = await instance.runCommand();
         expect(res.getExitCode()).toBe(0);
         expect(res.getStdOutput().map(l => l.string).join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+    });
+
+    it('runs nano interactively, accepts text input, writes out file, and exits cleanly', async () => {
+        if (!NANO_WASM_BYTES) return;
+        await run(shell, 'wbt install nano');
+
+        const stdoutChunks = [];
+        const onData = (chunk) => stdoutChunks.push(chunk);
+        shell.stdout.on('data', onData);
+
+        const cmdPromise = shell.onCommand('nano /test.txt');
+
+        // Allow nano to initialize, query terminal size, enter alt-screen, and render initial UI
+        await new Promise(r => setTimeout(r, 60));
+
+        // Type text into nano
+        for (const ch of 'Hello from nano!') {
+            shell.onInput(ch);
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // Save file: Ctrl+O, then Enter to confirm filename
+        shell.onInput('^O');
+        await new Promise(r => setTimeout(r, 30));
+        shell.onInput('Enter');
+        await new Promise(r => setTimeout(r, 30));
+
+        // Exit nano: Ctrl+X
+        shell.onInput('^X');
+
+        await cmdPromise;
+        shell.stdout.off('data', onData);
+
+        const saved = shell.context.fs.getFileByPath('/test.txt');
+        const joinedOutput = stdoutChunks.join('');
+
+        expect(shell.lastCode).toBe(0);
+        expect(saved).toContain('Hello from nano!');
+        expect(joinedOutput).toContain('\x1b[?1049h'); // entered alt screen
+        expect(joinedOutput).toContain('\x1b[?1049l'); // exited alt screen
     });
 });
 
