@@ -1346,7 +1346,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
     it('registers nano and nano-wasm in registry, wbt search, and wbt show', async () => {
         const listRes = await run(shell, 'wbt list');
         expect(listRes.exitCode).toBe(0);
-        expect(listRes.output.join('\n')).toContain('nano/wasm 8.0.0');
+        expect(listRes.output.join('\n')).toContain('nano/wasm 8.0.1');
 
         const searchRes = await run(shell, 'wbt search editor');
         expect(searchRes.exitCode).toBe(0);
@@ -1355,7 +1355,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         const showRes = await run(shell, 'wbt show nano');
         expect(showRes.exitCode).toBe(0);
         expect(showRes.output.join('\n')).toContain('Package: nano');
-        expect(showRes.output.join('\n')).toContain('Version: 8.0.0');
+        expect(showRes.output.join('\n')).toContain('Version: 8.0.1');
         expect(showRes.output.join('\n')).toContain('Aliases: nano-wasm');
 
         const showAliasRes = await run(shell, 'wbt show nano-wasm');

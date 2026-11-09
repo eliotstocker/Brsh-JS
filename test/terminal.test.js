@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import path from 'path';
+import fs from 'fs';
 import Shell from '../index.js';
 import Terminal from '../lib/Terminal.js';
 import Pico from '../demo/pico.js';
@@ -560,6 +562,34 @@ describe('brsh Shell Integration, Line Editing, and Full-Screen Apps', () => {
 
         expect(term.screen.isAltScreen).toBe(false);
         expect(term.getLineText(0)).toContain('brsh:root$ demorepl');
+    });
+
+    it('runs nano text editor in Terminal alternate screen and restores screen on exit', async () => {
+        const FIXTURE_NANO_WASM = path.resolve(import.meta.dirname, 'fixtures/nano.wasm');
+        if (!fs.existsSync(FIXTURE_NANO_WASM)) return;
+        const bytes = fs.readFileSync(FIXTURE_NANO_WASM);
+        const Wbt = (await import('../lib/wbt/index.js')).default.configure({
+            fetch: async () => ({
+                ok: true,
+                status: 200,
+                arrayBuffer: async () => bytes.buffer
+            })
+        });
+        shell.context.setCommand(Wbt);
+        await shell.onCommand('wbt install nano');
+
+        const nanoDone = waitForReady(shell);
+        shell.onCommand('nano');
+        await new Promise(r => setTimeout(r, 80));
+
+        expect(term.screen.isAltScreen).toBe(true);
+        expect(term.getScreenText()).toContain('GNU nano 8.0');
+
+        // Exit nano with Ctrl+X
+        term.sendKey('x', { ctrl: true });
+        await nanoDone;
+
+        expect(term.screen.isAltScreen).toBe(false);
     });
 });
 
