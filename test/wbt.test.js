@@ -440,14 +440,28 @@ function createMockWllama() {
             return new Uint8Array([0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00]);
         }
 
-        async createChatCompletion(opts) {
-            const messages = opts.messages || [];
+        createChatCompletion(opts) {
+            const messages = (opts && opts.messages) || [];
             const sysMsg = messages.find(m => m.role === 'system');
             const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content);
             const prefix = sysMsg ? `[sys:${sysMsg.content}] ` : '';
             const gpuTag = this._loadParams.n_gpu_layers === 0 ? 'CPU' : 'WebGPU';
             const reply = `${prefix}Reply(${gpuTag},turns=${userMsgs.length}): ${userMsgs[userMsgs.length - 1] || ''}`;
-            return {
+
+            if (opts && opts.stream) {
+                return (async function* () {
+                    const parts = reply.split(' ');
+                    for (let i = 0; i < parts.length; i++) {
+                        const token = (i === 0 ? '' : ' ') + parts[i];
+                        yield {
+                            id: 'chatcmpl-wllama',
+                            choices: [{ delta: { content: token } }]
+                        };
+                    }
+                })();
+            }
+
+            return Promise.resolve({
                 id: 'chatcmpl-wllama',
                 object: 'chat.completion',
                 choices: [
@@ -457,21 +471,35 @@ function createMockWllama() {
                         finish_reason: 'stop'
                     }
                 ]
-            };
+            });
         }
 
-        async createCompletion(opts) {
-            return {
+        createCompletion(opts) {
+            const reply = `${opts.prompt} [completed]`;
+            if (opts && opts.stream) {
+                return (async function* () {
+                    const parts = reply.split(' ');
+                    for (let i = 0; i < parts.length; i++) {
+                        const token = (i === 0 ? '' : ' ') + parts[i];
+                        yield {
+                            id: 'cmpl-wllama',
+                            choices: [{ text: token }]
+                        };
+                    }
+                })();
+            }
+
+            return Promise.resolve({
                 id: 'cmpl-wllama',
                 object: 'text_completion',
                 choices: [
                     {
                         index: 0,
-                        text: `${opts.prompt} [completed]`,
+                        text: reply,
                         finish_reason: 'stop'
                     }
                 ]
-            };
+            });
         }
 
         async createEmbedding(opts) {
@@ -1106,6 +1134,62 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         );
         expect(rawRes.exitCode).toBe(0);
         expect(rawRes.output.join('\n')).toContain('Explain WebGPU in one sentence. [completed]');
+    });
+
+    it('streams tokens in real time as they are generated and supports --no-stream', async () => {
+        const streamedTokens = [];
+        const rawChunks = [];
+        const onToken = (token) => streamedTokens.push(token);
+        const onRaw = (chunk) => rawChunks.push(chunk);
+
+        shell.on('token', onToken);
+        shell.on('stdOutRaw', onRaw);
+
+        const res = await run(
+            shell,
+            'wllama -m /home/tinyllama.gguf -p "Stream me"'
+        );
+
+        shell.removeListener('token', onToken);
+        shell.removeListener('stdOutRaw', onRaw);
+
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('\n')).toContain('Reply(WebGPU,turns=1): Stream me');
+        // Verified tokens were streamed incrementally
+        expect(streamedTokens.length).toBeGreaterThan(1);
+        expect(streamedTokens.join('')).toContain('Stream me');
+        expect(rawChunks.length).toBeGreaterThan(1);
+
+        // Test with --no-stream flag
+        const noStreamTokens = [];
+        const onNoStreamToken = (token) => noStreamTokens.push(token);
+        shell.on('token', onNoStreamToken);
+
+        const noStreamRes = await run(
+            shell,
+            'wllama -m /home/tinyllama.gguf --no-stream -p "No stream"'
+        );
+
+        shell.removeListener('token', onNoStreamToken);
+
+        expect(noStreamRes.exitCode).toBe(0);
+        expect(noStreamRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): No stream');
+        expect(noStreamTokens.length).toBe(0);
+
+        // Test status indication (loading model, running inference)
+        const statusUpdates = [];
+        const onStatus = (chunk) => statusUpdates.push(chunk);
+        shell.stderr.on('data', onStatus);
+
+        await run(
+            shell,
+            'wllama -m /home/tinyllama.gguf -p "Status test"'
+        );
+
+        shell.stderr.removeListener('data', onStatus);
+        const combinedStatus = statusUpdates.join('');
+        expect(combinedStatus).toMatch(/Loading model|Loaded model/);
+        expect(combinedStatus).toContain('Running inference');
     });
 
     it('supports Hugging Face model loading (--hf / hf:), embeddings (wllama embed), info, and bench', async () => {

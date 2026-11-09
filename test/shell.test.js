@@ -604,3 +604,118 @@ describe('MOTD, profile, and initial command startup chain', () => {
     });
 });
 
+describe('negation operator (!)', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('inverts successful exit code 0 to 1 for ! true', async () => {
+        const { exitCode } = await run(shell, '! true');
+        expect(exitCode).toBe(1);
+    });
+
+    it('inverts failure exit code to 0 for ! false', async () => {
+        const { exitCode } = await run(shell, '! false');
+        expect(exitCode).toBe(0);
+    });
+
+    it('inverts non-zero exit code of missing command for ! which wllama', async () => {
+        const { exitCode } = await run(shell, '! which wllama');
+        expect(exitCode).toBe(0);
+    });
+
+    it('inverts exit code in conditional chains with &&', async () => {
+        const { output, exitCode } = await run(shell, '! false && echo "negated success"');
+        expect(output).toContain('negated success');
+        expect(exitCode).toBe(0);
+    });
+
+    it('inverts exit code in conditional chains with ||', async () => {
+        const { output, exitCode } = await run(shell, '! true || echo "fallback"');
+        expect(output).toContain('fallback');
+        expect(exitCode).toBe(0);
+    });
+
+    it('inverts exit code of a pipeline with leading !', async () => {
+        const { exitCode } = await run(shell, '! true | false');
+        expect(exitCode).toBe(0);
+    });
+
+    it('inverts exit code of a pipeline stage', async () => {
+        const { exitCode } = await run(shell, 'false | ! true');
+        expect(exitCode).toBe(1);
+    });
+});
+
+describe('stream redirection syntax', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {}
+            }
+        });
+    });
+
+    it('redirects stderr to stdout with 2>&1', async () => {
+        const { output, errors } = await run(shell, 'cat /non_existent 2>&1');
+        expect(errors).toHaveLength(0);
+        expect(output.length).toBeGreaterThan(0);
+        expect(output[0]).toContain('No such file or directory');
+    });
+
+    it('pipes stderr into next stage when using 2>&1 |', async () => {
+        const { output } = await run(shell, 'cat /non_existent 2>&1 | cat');
+        expect(output.length).toBeGreaterThan(0);
+        expect(output[0]).toContain('No such file or directory');
+    });
+
+    it('discards stderr when redirected to /dev/null with 2> /dev/null', async () => {
+        const { output, errors, exitCode } = await run(shell, 'cat /non_existent 2> /dev/null');
+        expect(errors).toHaveLength(0);
+        expect(output).toHaveLength(0);
+        expect(exitCode).not.toBe(0);
+    });
+
+    it('strips 2>&1 from positional arguments (argv) so command does not receive it as an argument', async () => {
+        // which rejects with "which requires a single argument" if 2>&1 is not stripped
+        const { output, errors } = await run(shell, 'which non_existent 2>&1');
+        expect(output.join(' ')).not.toContain('which requires a single argument');
+        expect(errors.join(' ')).not.toContain('which requires a single argument');
+    });
+
+    it('redirects stderr to a file with 2>', async () => {
+        await run(shell, 'cat /non_existent 2> /home/err.txt');
+        const content = shell.context.fs.getFileByPath('/home/err.txt');
+        expect(content).toContain('No such file or directory');
+    });
+
+    it('appends stderr to a file with 2>>', async () => {
+        shell.context.fs.setFileByPath('/home/err.txt', 'existing', true);
+        await run(shell, 'cat /non_existent 2>> /home/err.txt');
+        const content = shell.context.fs.getFileByPath('/home/err.txt');
+        expect(content).toContain('existing\n');
+        expect(content).toContain('No such file or directory');
+    });
+
+    it('redirects stdout with 1> and 1>>', async () => {
+        await run(shell, 'echo first 1> /home/out.txt');
+        await run(shell, 'echo second 1>> /home/out.txt');
+        expect(shell.context.fs.getFileByPath('/home/out.txt')).toBe('first\nsecond');
+    });
+
+    it('redirects both stdout and stderr to a file with &>', async () => {
+        await run(shell, 'echo test &> /home/combined.txt');
+        expect(shell.context.fs.getFileByPath('/home/combined.txt')).toBe('test');
+    });
+
+    it('redirects both stdout and stderr to a file with > file 2>&1', async () => {
+        await run(shell, 'echo msg > /home/both.txt 2>&1');
+        expect(shell.context.fs.getFileByPath('/home/both.txt')).toBe('msg');
+    });
+
+    it('preserves quoted redirection tokens as literal arguments', async () => {
+        const { output } = await run(shell, 'echo "2>&1"');
+        expect(output).toEqual(['2>&1']);
+    });
+});
+

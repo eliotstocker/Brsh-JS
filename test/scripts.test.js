@@ -452,3 +452,83 @@ describe('sequential script execution', () => {
         expect(output[2]).toBe('3');
     });
 });
+
+describe('multiline quotes and line continuations in scripts', () => {
+    it('joins lines with unclosed double quotes into a single logical line', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'multiline-dq.sh': '#!/sh.js\necho "hello\nworld"'
+                }
+            },
+            permissions: execPerms('/scripts/multiline-dq.sh')
+        });
+        const { output } = await run(shell, '/scripts/multiline-dq.sh');
+        expect(output).toEqual(['hello', 'world']);
+    });
+
+    it('joins lines with unclosed single quotes into a single logical line', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'multiline-sq.sh': '#!/sh.js\necho \'first\nsecond\''
+                }
+            },
+            permissions: execPerms('/scripts/multiline-sq.sh')
+        });
+        const { output } = await run(shell, '/scripts/multiline-sq.sh');
+        expect(output).toEqual(['first', 'second']);
+    });
+
+    it('joins lines with trailing line continuation backslash', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'continuation.sh': '#!/sh.js\necho \\\n  hello \\\n  world'
+                }
+            },
+            permissions: execPerms('/scripts/continuation.sh')
+        });
+        const { output } = await run(shell, '/scripts/continuation.sh');
+        expect(output).toEqual(['hello world']);
+    });
+
+    it('supports line continuation in if conditions', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'if-cont.sh': '#!/sh.js\nif [ 1 = 1 ] \\\n   && [ 2 = 2 ]; then\necho matched\nfi'
+                }
+            },
+            permissions: execPerms('/scripts/if-cont.sh')
+        });
+        const { output } = await run(shell, '/scripts/if-cont.sh');
+        expect(output).toEqual(['matched']);
+    });
+
+    it('supports negation operator in if condition: if ! command; then', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'if-not.sh': '#!/sh.js\nif ! which non_existent_binary; then\necho "not found handled"\nfi'
+                }
+            },
+            permissions: execPerms('/scripts/if-not.sh')
+        });
+        const { output } = await run(shell, '/scripts/if-not.sh');
+        expect(output).toEqual(['not found handled']);
+    });
+
+    it('does not execute if block when condition with ! succeeds: if ! true; then', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'if-not-true.sh': '#!/sh.js\nif ! true; then\necho unexpected\nelse\necho expected\nfi'
+                }
+            },
+            permissions: execPerms('/scripts/if-not-true.sh')
+        });
+        const { output } = await run(shell, '/scripts/if-not-true.sh');
+        expect(output).toEqual(['expected']);
+    });
+});

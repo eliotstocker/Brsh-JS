@@ -460,54 +460,192 @@ class Shell extends EventEmitter {
         }
 
         if (!args.length) return;
-        let bin = args.shift().value;
+
+        // Parse negation operator (!)
+        let negate = false;
+        while (args.length > 0 && !args[0].hasQuote && args[0].value === '!') {
+            negate = !negate;
+            args.shift();
+        }
+
+        if (!args.length) {
+            this.lastCode = negate ? 1 : 0;
+            this.emit('exitCode', this.lastCode);
+            return;
+        }
+
+        // Parse file descriptor & stream redirections (> and >>, 1>, 2>, 2>&1, &>, etc.)
+        // Quoted tokens (hasQuote: true) are never treated as redirects.
+        let stdoutDest = { type: 'stdout' };
+        let stderrDest = { type: 'stderr' };
+        const positionalArgs = [];
+
+        for (let i = 0; i < args.length; i++) {
+            const { value: arg, hasQuote } = args[i];
+            if (hasQuote) {
+                positionalArgs.push(arg);
+                continue;
+            }
+
+            // fd duplication / close
+            if (arg === '2>&1') {
+                stderrDest = { ...stdoutDest };
+                continue;
+            }
+            if (arg === '1>&2') {
+                stdoutDest = { ...stderrDest };
+                continue;
+            }
+            if (arg === '2>&-') {
+                stderrDest = { type: 'null' };
+                continue;
+            }
+            if (arg === '1>&-' || arg === '>&-') {
+                stdoutDest = { type: 'null' };
+                continue;
+            }
+
+            // Both stdout & stderr redirect: &>, &>>, >&
+            if (arg === '&>>') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    const dest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                    stdoutDest = dest;
+                    stderrDest = dest;
+                }
+                continue;
+            }
+            if (arg === '&>' || arg === '>&') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    const dest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                    stdoutDest = dest;
+                    stderrDest = dest;
+                }
+                continue;
+            }
+            if (arg.startsWith('&>>') && arg.length > 3) {
+                const target = arg.slice(3);
+                const dest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                stdoutDest = dest;
+                stderrDest = dest;
+                continue;
+            }
+            if ((arg.startsWith('&>') || arg.startsWith('>&')) && arg.length > 2) {
+                const target = arg.slice(2);
+                const dest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                stdoutDest = dest;
+                stderrDest = dest;
+                continue;
+            }
+
+            // Stderr redirect: 2>, 2>>
+            if (arg === '2>>') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    stderrDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                }
+                continue;
+            }
+            if (arg === '2>') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    stderrDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                }
+                continue;
+            }
+            if (arg.startsWith('2>>') && arg.length > 3) {
+                const target = arg.slice(3);
+                stderrDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                continue;
+            }
+            if (arg.startsWith('2>') && arg.length > 2) {
+                const target = arg.slice(2);
+                stderrDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                continue;
+            }
+
+            // Stdout redirect: 1>, 1>>, >, >>
+            if (arg === '1>>' || arg === '>>') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    stdoutDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                }
+                continue;
+            }
+            if (arg === '1>' || arg === '>') {
+                if (i + 1 < args.length) {
+                    const target = args[++i].value;
+                    stdoutDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                }
+                continue;
+            }
+            if ((arg.startsWith('1>>') || arg.startsWith('>>')) && arg.length > (arg.startsWith('1>>') ? 3 : 2)) {
+                const target = arg.slice(arg.startsWith('1>>') ? 3 : 2);
+                stdoutDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: true };
+                continue;
+            }
+            if ((arg.startsWith('1>') || arg.startsWith('>')) && arg.length > (arg.startsWith('1>') ? 2 : 1)) {
+                const target = arg.slice(arg.startsWith('1>') ? 2 : 1);
+                stdoutDest = target === '/dev/null' ? { type: 'null' } : { type: 'file', file: target, append: false };
+                continue;
+            }
+
+            positionalArgs.push(arg);
+        }
+
+        if (!positionalArgs.length) {
+            for (const dest of [stdoutDest, stderrDest]) {
+                if (dest.type === 'file' && dest.file !== '/dev/null') {
+                    try {
+                        const abs = this.context.fs.absolutePath(dest.file);
+                        const existing = this.context.fs._getFileRaw(abs);
+                        if (!dest.append || existing === undefined) {
+                            this.context.fs.setFileByPath(abs, existing || '', true);
+                        }
+                    } catch (e) {
+                        this.emit('stdErr', `${dest.file}: Permission denied`);
+                        this.lastCode = negate ? 0 : 1;
+                        this.emit('exitCode', this.lastCode);
+                        return;
+                    }
+                }
+            }
+            this.lastCode = negate ? 1 : 0;
+            this.emit('exitCode', this.lastCode);
+            return;
+        }
+
+        let bin = positionalArgs.shift();
+        args = positionalArgs;
 
         // Bare variable assignment: VAR=value (only when no additional args)
         if (args.length === 0 && /^[A-Za-z_]\w*=/.test(bin)) {
             const eqIdx = bin.indexOf('=');
             this.context.setVar(bin.slice(0, eqIdx), bin.slice(eqIdx + 1));
-            this.lastCode = 0;
-            this.emit('exitCode', 0);
+            this.lastCode = negate ? 1 : 0;
+            this.emit('exitCode', this.lastCode);
             return;
         }
 
-        // Parse output redirection (> and >>)
-        // Quoted tokens (hasQuote: true) are never treated as redirects.
-        let redirectPath = null;
-        let appendMode = false;
-        const filteredArgs = [];
-        for (let i = 0; i < args.length; i++) {
-            const { value: arg, hasQuote } = args[i];
-            if (!hasQuote && (arg === '>>' || arg === '>') && i + 1 < args.length) {
-                appendMode = arg === '>>';
-                redirectPath = args[++i].value;
-            } else if (!hasQuote && arg.startsWith('>>') && arg.length > 2) {
-                appendMode = true;
-                redirectPath = arg.slice(2);
-            } else if (!hasQuote && arg.startsWith('>') && arg.length > 1) {
-                appendMode = false;
-                redirectPath = arg.slice(1);
-            } else {
-                filteredArgs.push(arg);
-            }
-        }
-        args = filteredArgs;
-
-        //short circuit for aliases
+        // Short circuit for aliases
         const alias = this.context.getAlias(bin);
         if(alias) {
-            return this.onCommand(alias, false);
+            return this.onCommand(alias, false).then(() => {
+                if (negate) {
+                    this.lastCode = this.lastCode === 0 ? 1 : 0;
+                    this.emit('exitCode', this.lastCode);
+                }
+            });
         }
 
         let Cmd;
         try {
             Cmd = this._parseCommand(
-            (bin.startsWith('/') || bin.startsWith('./')) ? bin : bin.toLowerCase()
-        );
+                (bin.startsWith('/') || bin.startsWith('./')) ? bin : bin.toLowerCase()
+            );
         } catch(e) {
-            this.emit('stdErr', e.message);
-            this.lastCode = 1;
-            this.emit('exitCode', this.lastCode);
+            this._handleCommandError(e.message, stderrDest, negate);
             return;
         }
 
@@ -518,9 +656,7 @@ class Shell extends EventEmitter {
         } else if(isCommandClass(Cmd)) {
             instance = new Cmd(args, this._readonlyContext);
         } else {
-            this.emit('stdErr', `${bin}: Command not found`);
-            this.lastCode = 1;
-            this.emit('exitCode', this.lastCode);
+            this._handleCommandError(`${bin}: Command not found`, stderrDest, negate);
             return;
         }
 
@@ -532,21 +668,64 @@ class Shell extends EventEmitter {
             instance.stdin = this._stdin;
         }
 
+        const fileOutputs = new Map();
+        const routeLine = ({ type, string }) => {
+            const dest = type === 'out' ? stdoutDest : stderrDest;
+            if (dest.type === 'stdout') {
+                this.emit('stdOut', string);
+            } else if (dest.type === 'stderr') {
+                this.emit('stdErr', string);
+            } else if (dest.type === 'file') {
+                if (dest.file !== '/dev/null') {
+                    let entry = fileOutputs.get(dest.file);
+                    if (!entry) {
+                        entry = { append: dest.append, lines: [] };
+                        fileOutputs.set(dest.file, entry);
+                    }
+                    entry.lines.push(string);
+                }
+            }
+        };
+
         this.runningCommand = instance;
         if(this.runningCommand.on) {
             this.runningCommand.on('flush', lines => {
-                this._emitOutput(lines);
+                lines.forEach(routeLine);
             });
             this.runningCommand.on('stdout', chunk => {
-                if (redirectPath) {
-                    instance.stdOut = String(chunk ?? '');
+                if (stdoutDest.type === 'file') {
+                    if (!instance._streamedStdout) {
+                        instance.stdOut = String(chunk ?? '');
+                    }
+                } else if (stdoutDest.type === 'stderr') {
+                    this.stderr.write(chunk);
+                } else if (stdoutDest.type === 'null') {
+                    // discard
                 } else {
                     this.stdout.write(chunk);
                     this.emit('stdOutRaw', chunk);
                 }
             });
+            this.runningCommand.on('token', token => {
+                this.emit('token', token);
+            });
             this.runningCommand.on('stderr', chunk => {
-                this.stderr.write(chunk);
+                if (stderrDest.type === 'file') {
+                    instance.stdErr = String(chunk ?? '');
+                } else if (stderrDest.type === 'stdout') {
+                    if (stdoutDest.type === 'file') {
+                        instance.stdOut = String(chunk ?? '');
+                    } else if (stdoutDest.type === 'null') {
+                        // discard
+                    } else {
+                        this.stdout.write(chunk);
+                        this.emit('stdOutRaw', chunk);
+                    }
+                } else if (stderrDest.type === 'null') {
+                    // discard
+                } else {
+                    this.stderr.write(chunk);
+                }
             });
         }
         if (instance.interactive) {
@@ -555,36 +734,61 @@ class Shell extends EventEmitter {
 
         return instance.runCommand().then(result => {
             const stdOutput = result.getStdOutput();
+            stdOutput.forEach(routeLine);
 
-            if (redirectPath) {
-                const absTarget = this.context.fs.absolutePath(redirectPath);
-                const outLines = stdOutput.filter(l => l.type === 'out').map(l => l.string);
-                const content = appendMode
-                    ? (() => {
-                        const existing = this.context.fs._getFileRaw(absTarget);
-                        return typeof existing === 'string'
-                            ? existing + '\n' + outLines.join('\n')
-                            : outLines.join('\n');
-                    })()
-                    : outLines.join('\n');
+            for (const dest of [stdoutDest, stderrDest]) {
+                if (dest.type === 'file' && dest.file !== '/dev/null' && !fileOutputs.has(dest.file)) {
+                    fileOutputs.set(dest.file, { append: dest.append, lines: [] });
+                }
+            }
+
+            for (const [filePath, { append, lines }] of fileOutputs) {
+                const absTarget = this.context.fs.absolutePath(filePath);
+                const content = lines.join('\n');
+                let finalContent = content;
+                if (append) {
+                    const existing = this.context.fs._getFileRaw(absTarget);
+                    finalContent = typeof existing === 'string'
+                        ? (existing.length > 0 ? existing + '\n' + content : content)
+                        : content;
+                }
                 try {
-                    this.context.fs.setFileByPath(absTarget, content, true);
+                    this.context.fs.setFileByPath(absTarget, finalContent, true);
                 } catch (e) {
-                    this.emit('stdErr', `${redirectPath}: Permission denied`);
-                    this.lastCode = 1;
+                    this.emit('stdErr', `${filePath}: Permission denied`);
+                    this.lastCode = negate ? 0 : 1;
                     this.emit('exitCode', this.lastCode);
                     delete this.runningCommand;
                     return;
                 }
-                this._emitOutput(stdOutput.filter(l => l.type === 'err'));
-            } else {
-                this._emitOutput(stdOutput);
             }
 
-            this.lastCode = result.getExitCode();
+            const rawExitCode = result.getExitCode();
+            this.lastCode = negate ? (rawExitCode === 0 ? 1 : 0) : rawExitCode;
             this.emit('exitCode', this.lastCode);
             delete this.runningCommand;
         });
+    }
+
+    _handleCommandError(message, stderrDest, negate) {
+        if (stderrDest.type === 'stdout') {
+            this.emit('stdOut', message);
+        } else if (stderrDest.type === 'file') {
+            if (stderrDest.file !== '/dev/null') {
+                try {
+                    const absTarget = this.context.fs.absolutePath(stderrDest.file);
+                    const existing = this.context.fs._getFileRaw(absTarget);
+                    const content = stderrDest.append && typeof existing === 'string'
+                        ? (existing.length > 0 ? existing + '\n' + message : message)
+                        : message;
+                    this.context.fs.setFileByPath(absTarget, content, true);
+                } catch (_) {}
+            }
+        } else if (stderrDest.type === 'stderr') {
+            this.emit('stdErr', message);
+        }
+        this.lastCode = negate ? 0 : 1;
+        this.emit('exitCode', this.lastCode);
     }
 
     _emitOutput(lines) {
@@ -617,8 +821,10 @@ class Shell extends EventEmitter {
 
     _setupTtyStreams() {
         this.on('stdOut', line => {
-            if (this.runningCommand && (this.runningCommand.interactive || this.runningCommand._inAltScreen)) {
-                this.stdout.write(String(line ?? ''));
+            if (this.runningCommand && (this.runningCommand.interactive || this.runningCommand._inAltScreen || this.runningCommand._streamedStdout)) {
+                if (this.runningCommand.interactive || this.runningCommand._inAltScreen) {
+                    this.stdout.write(String(line ?? ''));
+                }
                 return;
             }
             if (typeof line === 'string' && line.startsWith('\r')) {
@@ -1237,6 +1443,23 @@ class Shell extends EventEmitter {
         if (commands.length === 1) {
             return this._runCommand(commands[0]);
         }
+
+        let negatePipeline = false;
+        try {
+            const firstParts = Shell._splitCommand(commands[0]);
+            let strippedCmd0 = commands[0];
+            let hasNegation = false;
+            while (firstParts.length > 0 && !firstParts[0].hasQuote && firstParts[0].value === '!') {
+                negatePipeline = !negatePipeline;
+                hasNegation = true;
+                firstParts.shift();
+                strippedCmd0 = strippedCmd0.replace(/^\s*!\s*/, '');
+            }
+            if (hasNegation) {
+                commands = [strippedCmd0, ...commands.slice(1)];
+            }
+        } catch (_) {}
+
         let stdinData = undefined;
         for (let i = 0; i < commands.length; i++) {
             const isLast = i === commands.length - 1;
@@ -1250,6 +1473,11 @@ class Shell extends EventEmitter {
             } else {
                 stdinData = await this._captureForPipe(commands[i], stdinData);
             }
+        }
+
+        if (negatePipeline) {
+            this.lastCode = this.lastCode === 0 ? 1 : 0;
+            this.emit('exitCode', this.lastCode);
         }
     }
 

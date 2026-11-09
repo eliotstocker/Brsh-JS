@@ -8,10 +8,13 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 
 ### Operators / Redirection
 - [x] Pipes (`|`) — `cmd1 | cmd2`
+- [x] Negation operator (`!`) — `! cmd` / `! pipeline`
 - [x] Logical AND (`&&`)
 - [x] Logical OR (`||`)
 - [x] Sequential (`;`)
 - [x] Output redirect (`>`, `>>`)
+- [x] Stream & file descriptor redirect (`2>&1`, `2>`, `1>`, `&>`)
+- [x] Line continuation (`\`) and multiline quotes (`'`, `"`) in scripts
 - [ ] Input redirect (`<`)
 - [ ] Here-doc (`<<EOF … EOF`)
 - [ ] Here-string (`<<<`)
