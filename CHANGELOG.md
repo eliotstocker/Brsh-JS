@@ -1,3 +1,10 @@
+# [3.7.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.2...v3.7.0) (2026-11-09)
+
+
+### Features
+
+* **terminal:** implement screen buffer reflow on terminal resize ([7e3c648](https://github.com/eliotstocker/Brsh-JS/commit/7e3c6480fa949cecb8857d4e77bbc5f317543c44))
+
 ## [3.6.2](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.1...v3.6.2) (2026-11-09)
 
 
