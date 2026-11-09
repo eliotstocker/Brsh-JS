@@ -1,3 +1,10 @@
+## [3.6.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.0...v3.6.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **wbt:** support interactive streaming and input forwarding for wbt run, bump nano to 8.0.1 ([97cc478](https://github.com/eliotstocker/Brsh-JS/commit/97cc478d97160075249ab3d490f6e3d30f90b44f))
+
 # [3.6.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.5.0...v3.6.0) (2026-11-09)
 
 
