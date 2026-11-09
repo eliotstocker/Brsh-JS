@@ -882,5 +882,131 @@ describe('Output Typing Animation Suppression', () => {
             expect(el.children).not.toContain(input);
             expect(term._mobileInputElement).toBeNull();
         });
+
+        it('disables autocapitalize, autocorrect, autocomplete, and spellcheck on mobile input', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            expect(input.autocapitalize).toBe('none');
+            expect(input.autocorrect).toBe('off');
+            expect(input.autocomplete).toBe('off');
+            expect(input.spellcheck).toBe('false');
+            expect(input.enterkeyhint).toBe('go');
+            term.destroy();
+        });
+
+        it('handles mobile character typing when characters are prepended due to zero caret', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            const received = [];
+            term.onData((data) => received.push(data));
+
+            // Type 'h'
+            input.value = 'h';
+            input.dispatchEvent('input');
+
+            // Type 'e' (prepended at offset 0 due to zero-size input caret, value becomes 'eh')
+            input.value = 'eh';
+            input.dispatchEvent('input');
+
+            // Type 'l' (prepended at offset 0, value becomes 'leh')
+            input.value = 'leh';
+            input.dispatchEvent('input');
+
+            // Type 'p' (prepended at offset 0, value becomes 'pleh')
+            input.value = 'pleh';
+            input.dispatchEvent('input');
+
+            expect(received).toEqual(['h', 'e', 'l', 'p']);
+            term.destroy();
+        });
+
+        it('handles mobile typing via inputType insertText and e.data', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            const received = [];
+            term.onData((data) => received.push(data));
+
+            input.value = 'a';
+            input.dispatchEvent('input', { inputType: 'insertText', data: 'a' });
+
+            input.value = 'ab';
+            input.dispatchEvent('input', { inputType: 'insertText', data: 'b' });
+
+            input.value = 'abc';
+            input.dispatchEvent('input', { inputType: 'insertText', data: 'c' });
+
+            expect(received).toEqual(['a', 'b', 'c']);
+            term.destroy();
+        });
+
+        it('handles mobile backspace and Enter', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            const received = [];
+            term.onData((data) => received.push(data));
+
+            // Type 'hi'
+            input.value = 'hi';
+            input.dispatchEvent('input', { inputType: 'insertText', data: 'hi' });
+
+            // Backspace via inputType
+            input.value = 'h';
+            input.dispatchEvent('input', { inputType: 'deleteContentBackward' });
+
+            // Enter via insertLineBreak
+            input.dispatchEvent('input', { inputType: 'insertLineBreak' });
+
+            expect(received).toEqual(['hi', '\x7f', '\r']);
+            expect(input.value).toBe('');
+            expect(term._mobileInputBuffer).toBe('');
+
+            term.destroy();
+        });
+
+        it('handles Android keyup with Unidentified via diff', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const input = term._mobileInputElement;
+            const received = [];
+            term.onData((data) => received.push(data));
+
+            input.value = 'x';
+            input.dispatchEvent('keyup', { key: 'Unidentified' });
+
+            input.value = 'yx'; // prepended 'y'
+            input.dispatchEvent('keyup', { key: 'Unidentified' });
+
+            expect(received).toEqual(['x', 'y']);
+            term.destroy();
+        });
     });
 });
