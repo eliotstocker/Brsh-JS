@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const path = require('path');
 const fs = require('fs');
 const Wbt = require('../lib/wbt/index.js');
-const { wllamaInstances } = require('../lib/wbt/packages/wllama.js');
+const { wllamaInstances, DEFAULT_MODEL_URL, MODEL_ALIASES, resolveModelSpec } = require('../lib/wbt/packages/wllama.js');
 
 const NANO_WASM_PATH = path.resolve(import.meta.dirname, '../../nano-wasm/dist/nano.wasm');
 const NANO_WASM_BYTES = (() => {
@@ -1293,6 +1293,39 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(modelsRes.exitCode).toBe(0);
         expect(modelsRes.output.join('\n')).toContain('/var/cache/wllama/Qwen2.5-0.5B-Instruct-GGUF-Q4_K_M.gguf');
         expect(modelsRes.output.join('\n')).toContain('persisted (fs)');
+    });
+
+    it('defaults to SmolLM2 model and supports friendly model aliases like smol and qwen', async () => {
+        // Verify default model URL is SmolLM2-135M rather than stories
+        expect(DEFAULT_MODEL_URL).toContain('SmolLM2-135M-Instruct');
+        expect(DEFAULT_MODEL_URL).not.toContain('stories');
+
+        // Verify resolveModelSpec helper maps empty input to SmolLM2 default
+        const defaultSpec = resolveModelSpec();
+        expect(defaultSpec.url).toBe(DEFAULT_MODEL_URL);
+        expect(defaultSpec.url).toContain('SmolLM2-135M-Instruct-Q4_K_M.gguf');
+
+        // Verify smol and qwen aliases
+        const smolSpec = resolveModelSpec('smol');
+        expect(smolSpec.url).toBe(MODEL_ALIASES.smol);
+        const qwenSpec = resolveModelSpec('qwen');
+        expect(qwenSpec.url).toBe(MODEL_ALIASES.qwen);
+        expect(qwenSpec.url).toContain('qwen2.5-0.5b-instruct-q4_k_m.gguf');
+
+        // Run wllama with no -m flag (uses default SmolLM2 model)
+        const defaultRes = await run(shell, 'wllama -p "Default model prompt"');
+        expect(defaultRes.exitCode).toBe(0);
+        expect(defaultRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): Default model prompt');
+
+        // Run wllama pull using alias 'qwen'
+        const pullQwenRes = await run(shell, 'wllama pull qwen -q');
+        expect(pullQwenRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/var/cache/wllama/qwen2.5-0.5b-instruct-q4_k_m.gguf')).toBe(true);
+
+        // Run wllama using alias 'qwen' with -m
+        const qwenRes = await run(shell, 'wllama -m qwen -p "Hello Qwen"');
+        expect(qwenRes.exitCode).toBe(0);
+        expect(qwenRes.output.join('\n')).toContain('Reply(WebGPU,turns=1): Hello Qwen');
     });
 });
 

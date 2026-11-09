@@ -327,8 +327,8 @@ wbt run jq -r ".name" package.json
 nano /home/hello.txt
 
 # Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
-wllama -m /home/model.gguf -p "Explain WebGPU in one sentence."
-wllama pull https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M.gguf -o /home/model.gguf
+wllama -p "Explain WebGPU in one sentence." # uses default SmolLM2 model (or pass -m qwen)
+wllama pull smol -o /home/model.gguf
 wllama -m /home/model.gguf # launches interactive multi-turn chat REPL
 
 # Run SQLite3 (persists database files directly in the brsh filesystem, or run `sqlite3 /home/app.db` for interactive SQL REPL)
