@@ -1,10 +1,30 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
     <head>
-        <title>BRowerSHell Demo</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>BRowserSHell Demo</title>
         <link rel="stylesheet" href="../styles/terminal.css">
+        <link rel="stylesheet" href="./demo.css">
         <script src="fs.js"></script>
     </head>
     <body>
+        <div class="terminal-window">
+            <header class="terminal-titlebar">
+                <div class="terminal-controls">
+                    <button class="terminal-btn terminal-btn--close" id="btn-close" aria-label="Clear screen" title="Clear terminal"></button>
+                    <button class="terminal-btn terminal-btn--minimize" id="btn-minimize" aria-label="Minimize" title="Minimize"></button>
+                    <button class="terminal-btn terminal-btn--maximize" id="btn-maximize" aria-label="Toggle maximize" title="Toggle maximize"></button>
+                </div>
+                <div class="terminal-title" id="terminal-title">brsh &mdash; BRowserSHell</div>
+                <div class="terminal-meta">
+                    <span class="terminal-badge">brsh</span>
+                </div>
+            </header>
+            <main class="terminal-body">
+                <div class="terminal-viewport" id="terminal"></div>
+            </main>
+        </div>
         <script type="module" src="./demo.js"></script>
     </body>
 </html>

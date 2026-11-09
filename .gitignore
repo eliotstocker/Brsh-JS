@@ -5,3 +5,5 @@ coverage/
 brsh-bin/
 dist-demo/
 demo/fs.js
+demo/fs.brfs
+

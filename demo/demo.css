@@ -1,0 +1,227 @@
+/**
+ * Modern Dark Mode & Window Wrapper for BRSH Demo
+ */
+
+:root {
+    --bg-page: #0d1117;
+    --bg-window: #161b22;
+    --bg-titlebar: #1f242c;
+    --bg-terminal: #0d1117;
+    --border-color: rgba(255, 255, 255, 0.1);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --text-primary: #e6edf3;
+    --text-muted: #8b949e;
+    --window-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-page);
+    background-image: 
+        radial-gradient(circle at 50% 20%, #1f293d 0%, transparent 60%),
+        radial-gradient(circle at 80% 80%, #161d2d 0%, transparent 40%);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.terminal-window {
+    width: min(880px, 92vw);
+    height: min(520px, 80vh);
+    background: var(--bg-terminal);
+    border-radius: 12px;
+    box-shadow: var(--window-shadow);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease;
+}
+
+.terminal-window.is-maximized {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+}
+
+/* Titlebar */
+.terminal-titlebar {
+    height: 38px;
+    background: var(--bg-titlebar);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    user-select: none;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.terminal-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 2;
+}
+
+.terminal-btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    outline: none;
+    position: relative;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.terminal-btn:hover {
+    transform: scale(1.08);
+}
+
+.terminal-btn:active {
+    transform: scale(0.95);
+}
+
+.terminal-btn--close {
+    background-color: #ff5f56;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.terminal-btn--minimize {
+    background-color: #ffbd2e;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.terminal-btn--maximize {
+    background-color: #27c93f;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.terminal-title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.3px;
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 80px;
+}
+
+.terminal-meta {
+    display: flex;
+    align-items: center;
+    z-index: 2;
+}
+
+.terminal-badge {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-subtle);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: 'Roboto Mono', monospace;
+}
+
+/* Terminal Body Outer Container */
+.terminal-body {
+    flex: 1;
+    min-height: 0;
+    padding: 12px 14px;
+    background-color: var(--bg-terminal);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Terminal Viewport (mount target for Terminal instance) */
+.terminal-viewport {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+    color: var(--text-primary);
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    font-size: 14px;
+    cursor: text;
+    user-select: text;
+}
+
+/* Scrollbar */
+.terminal-viewport::-webkit-scrollbar {
+    width: 8px;
+}
+
+.terminal-viewport::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.terminal-viewport::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+}
+
+.terminal-viewport::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* ANSI color palette optimized for Dark Mode */
+.terminal-window .ansi-black-fg { color: #6272a4; }
+.terminal-window .ansi-red-fg { color: #ff5555; }
+.terminal-window .ansi-green-fg { color: #50fa7b; }
+.terminal-window .ansi-yellow-fg { color: #f1fa8c; }
+.terminal-window .ansi-blue-fg { color: #8be9fd; }
+.terminal-window .ansi-magenta-fg { color: #ff79c6; }
+.terminal-window .ansi-cyan-fg { color: #8be9fd; }
+.terminal-window .ansi-white-fg { color: #f8f8f2; }
+
+.terminal-window .ansi-bright-black-fg { color: #6272a4; }
+.terminal-window .ansi-bright-red-fg { color: #ff6e6e; }
+.terminal-window .ansi-bright-green-fg { color: #69ff94; }
+.terminal-window .ansi-bright-yellow-fg { color: #ffffa5; }
+.terminal-window .ansi-bright-blue-fg { color: #a4ffff; }
+.terminal-window .ansi-bright-magenta-fg { color: #ff92df; }
+.terminal-window .ansi-bright-cyan-fg { color: #a4ffff; }
+.terminal-window .ansi-bright-white-fg { color: #ffffff; }
+
+.terminal-window .terminal__link {
+    color: #58a6ff;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .terminal-window {
+        width: 100vw;
+        height: 100dvh;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+    }
+}
