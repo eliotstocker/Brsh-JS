@@ -1,3 +1,10 @@
+# [3.5.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.4.0...v3.5.0) (2026-11-09)
+
+
+### Features
+
+* **wbt:** add intermediate progress bar for model weights loading and inference in wllama ([d024e1d](https://github.com/eliotstocker/Brsh-JS/commit/d024e1d2c9be975d6fed0815868e2de7f26a1e9d))
+
 # [3.4.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.3.1...v3.4.0) (2026-11-09)
 
 
