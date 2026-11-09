@@ -1,3 +1,10 @@
+## [3.1.4](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.3...v3.1.4) (2026-11-09)
+
+
+### Bug Fixes
+
+* **scripts:** support script positional parameters and $@, $*, $# ([21745f5](https://github.com/eliotstocker/Brsh-JS/commit/21745f5f9938d9728e575d16eb65b0a5b5f972c0))
+
 ## [3.1.3](https://github.com/eliotstocker/Brsh-JS/compare/v3.1.2...v3.1.3) (2026-11-09)
 
 
