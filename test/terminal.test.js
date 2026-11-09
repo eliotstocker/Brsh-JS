@@ -591,6 +591,38 @@ describe('brsh Shell Integration, Line Editing, and Full-Screen Apps', () => {
 
         expect(term.screen.isAltScreen).toBe(false);
     });
+
+    it('runs nano text editor opening a file and displaying its content', async () => {
+        const FIXTURE_NANO_WASM = path.resolve(import.meta.dirname, 'fixtures/nano.wasm');
+        if (!fs.existsSync(FIXTURE_NANO_WASM)) return;
+        const bytes = fs.readFileSync(FIXTURE_NANO_WASM);
+        const Wbt = (await import('../lib/wbt/index.js')).default.configure({
+            fetch: async () => ({
+                ok: true,
+                status: 200,
+                arrayBuffer: async () => bytes.buffer
+            })
+        });
+        shell.context.setCommand(Wbt);
+        await shell.onCommand('wbt install nano');
+
+        shell.context.fs.setFileByPath('greeting.txt', 'Hello from inside nano buffer!', true);
+
+        const nanoDone = waitForReady(shell);
+        shell.onCommand('nano greeting.txt');
+        await new Promise(r => setTimeout(r, 80));
+
+        expect(term.screen.isAltScreen).toBe(true);
+        expect(term.getScreenText()).toContain('greeting.txt');
+        expect(term.getScreenText()).toContain('Hello from inside nano buffer!');
+        expect(term.getScreenText()).not.toContain('does not exist');
+
+        // Exit nano with Ctrl+X
+        term.sendKey('x', { ctrl: true });
+        await nanoDone;
+
+        expect(term.screen.isAltScreen).toBe(false);
+    });
 });
 
 describe('TUI (blessed-style) Application over Virtual TTY & Real zsh PTY Compatibility', () => {
