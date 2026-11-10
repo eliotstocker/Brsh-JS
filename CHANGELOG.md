@@ -1,3 +1,10 @@
+# [3.9.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.8.1...v3.9.0) (2026-11-10)
+
+
+### Features
+
+* in-memory /dev overlay, signal emulation with Ctrl+C, and WASM requirement auto-discovery ([#33](https://github.com/eliotstocker/Brsh-JS/issues/33)) ([a4a4f1f](https://github.com/eliotstocker/Brsh-JS/commit/a4a4f1f3c34a0e271db771ee395e5611224c4244))
+
 ## [3.8.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.8.0...v3.8.1) (2026-11-10)
 
 
