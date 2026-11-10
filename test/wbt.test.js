@@ -1500,6 +1500,52 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
     });
 });
 
+describe('WBT Doom WASM package (doom / doom-wasm / doom-ascii)', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell();
+        shell.context.setCommand(createTestWbt());
+    });
+
+    it('registers doom in registry, wbt search, and wbt show', async () => {
+        const listRes = await run(shell, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(listRes.output.join('\n')).toContain('doom/wasm 0.3.2');
+
+        const searchRes = await run(shell, 'wbt search game');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('doom');
+
+        const showRes = await run(shell, 'wbt show doom');
+        expect(showRes.exitCode).toBe(0);
+        expect(showRes.output.join('\n')).toContain('Package: doom');
+        expect(showRes.output.join('\n')).toContain('Version: 0.3.2');
+        expect(showRes.output.join('\n')).toContain('Aliases: doom-wasm, doom-ascii');
+
+        const showAliasRes = await run(shell, 'wbt show doom-wasm');
+        expect(showAliasRes.exitCode).toBe(0);
+        expect(showAliasRes.output.join('\n')).toContain('Package: doom');
+    });
+
+    it('installs doom and aliases into /bin and cleans up on remove', async () => {
+        const installRes = await run(shell, 'wbt install doom');
+        expect(installRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/doom.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/doom')).toBe(true);
+        expect(shell.context.fs.exists('/bin/doom-wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/doom-ascii')).toBe(true);
+
+        const rmRes = await run(shell, 'wbt remove doom');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/doom')).toBe(false);
+        expect(shell.context.fs.exists('/bin/doom-wasm')).toBe(false);
+        expect(shell.context.fs.exists('/bin/doom-ascii')).toBe(false);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/doom.wasm')).toBe(false);
+    });
+});
+
+
 
 
 
