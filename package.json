@@ -23,7 +23,8 @@
   },
   "bin": {
     "exportFileSystem": "bin/exportFileSystem.js",
-    "brsh": "bin/brsh-shell.js"
+    "brsh": "bin/brsh-shell.js",
+    "wbt": "bin/wbt.js"
   },
   "scripts": {
     "start": "node bin/exportFileSystem.js ./demo/filesystem -o ./demo/fs.js -v fs --binary -c && vite --config vite.config.js demo/",

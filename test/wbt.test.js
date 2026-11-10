@@ -559,6 +559,45 @@ function createTestWbt() {
                     arrayBuffer: async () => NANO_WASM_BYTES.buffer
                 };
             }
+            if (url.includes('/bin/freedoom')) {
+                const scriptPath = path.resolve(import.meta.dirname, '../../eliotstocker/doom-wasm/bin/freedoom');
+                const scriptText = fs.existsSync(scriptPath)
+                    ? fs.readFileSync(scriptPath, 'utf8')
+                    : [
+                        '#!/bin/sh',
+                        'WAD_DIR="/usr/share/games/doom"',
+                        'WAD_NAME="freedoom1.wad"',
+                        'WAD_URL="https://raw.githubusercontent.com/redox-os/freedoom/master/freedoom1.wad"',
+                        'EXTRA_ARGS=""',
+                        'for ARG in $@',
+                        'do',
+                        '    case "$ARG" in',
+                        '        --phase2|--freedoom2|-2)',
+                        '            WAD_NAME="freedoom2.wad"',
+                        '            WAD_URL="https://raw.githubusercontent.com/redox-os/freedoom/master/freedoom2.wad"',
+                        '            ;;',
+                        '        --help|-h)',
+                        '            echo "Usage: freedoom [--phase1 | --phase2] [doom options...]"',
+                        '            return 0',
+                        '            ;;',
+                        '        *)',
+                        '            EXTRA_ARGS="$EXTRA_ARGS $ARG"',
+                        '            ;;',
+                        '    esac',
+                        'done',
+                        'WAD_FILE="$WAD_DIR/$WAD_NAME"',
+                        'if [ ! -f "$WAD_FILE" ]; then',
+                        '    mkdir -p "$WAD_DIR"',
+                        '    curl -# -L -o "$WAD_FILE" "$WAD_URL"',
+                        'fi',
+                        'doom -iwad "$WAD_FILE" -nosound $EXTRA_ARGS'
+                    ].join('\n');
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () => scriptText
+                };
+            }
             if (url === 'https://example.com/hello.wasm' || /\.wasm(\?.*)?$/i.test(url)) {
                 return {
                     ok: true,
@@ -689,13 +728,13 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         const installRes = await run(shell, 'wbt install sqlite3');
         expect(installRes.exitCode).toBe(0);
         expect(fetchedUrls.some(u => u.includes('sql-wasm.wasm'))).toBe(true);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/sqlite3.wasm')).toBe(true);
 
         const showRes = await run(shell, 'wbt show sqlite3');
-        expect(showRes.output.join('\n')).toContain('WASM-File: /var/lib/wbt/wasm/sqlite3.wasm');
+        expect(showRes.output.join('\n')).toContain('WASM-File: /usr/lib/sqlite3/sqlite3.wasm');
 
         await run(shell, 'wbt remove sqlite3');
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/sqlite3.wasm')).toBe(false);
     });
 
     it('removes an installed package and unregisters its binary from /bin', async () => {
@@ -722,15 +761,19 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         expect(showCustom.output.join('\n')).toContain('Remote registry test package');
     });
 
-    it('restores installed commands from /var/lib/wbt/installed.json via Wbt.restoreInstalled', async () => {
+    it('treats /usr/lib/<pkg>/ as the single source of truth without creating /var/lib/wbt/installed.json', async () => {
         await run(shell, 'wbt install sqlite3');
+        expect(shell.context.fs.exists('/var/lib/wbt/installed.json')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/package.json')).toBe(true);
+
         const rawFs = shell.context.fs.getRaw();
         const rawPerms = shell.context.fs.getRawPermissions();
 
-        const savedInstalledJson = rawFs.var.lib.wbt['installed.json'];
+        // Restore filesystem into a new shell from the directory structure alone
         const shell2 = await createShell({
             filesystem: {
-                var: { lib: { wbt: { 'installed.json': savedInstalledJson } } }
+                usr: rawFs.usr,
+                bin: rawFs.bin
             },
             permissions: rawPerms
         });
@@ -1366,7 +1409,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
     it('installs nano and nano-wasm into /bin and runs --version and --help', async () => {
         const installRes = await run(shell, 'wbt install nano');
         expect(installRes.exitCode).toBe(0);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
 
@@ -1394,18 +1437,18 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         await run(shell, 'wbt install nano-wasm');
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
 
         const rmRes = await run(shell, 'wbt remove nano');
         expect(rmRes.exitCode).toBe(0);
         expect(shell.context.fs.exists('/bin/nano')).toBe(false);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(false);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(false);
     });
 
     it('runs nano even when invoked with readonlyContext without context.fs', async () => {
         await run(shell, 'wbt install nano');
-        const NanoCmd = shell.context.fs.getFileByPath('/bin/nano');
+        const NanoCmd = shell._resolveCommandFromPath('/bin/nano');
         expect(NanoCmd).toBeDefined();
 
         const readonlyCtx = Object.freeze({
@@ -1497,6 +1540,261 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(shell.lastCode).toBe(0);
         expect(saved).toContain('Hello from stream!');
         expect(saved).not.toContain('HHeelllloo');
+    });
+});
+
+describe('WBT filesystem installer architecture (installer, not runtime)', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell({ filesystem: { home: {} } });
+        shell.context.setCommand(createTestWbt());
+    });
+
+    it('installs pure WASM to /usr/lib/<pkg>/<bin>.wasm and symlinks into /bin/<cmd>', async () => {
+        const installRes = await run(shell, 'wbt install nano');
+        expect(installRes.exitCode).toBe(0);
+
+        // Binary placed in /usr/lib/nano/nano.wasm
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
+        expect(shell.context.fs.isExecutable('/usr/lib/nano/nano.wasm')).toBe(true);
+
+        // Symlinks in /bin
+        expect(shell.context.fs.isSymlink('/bin/nano')).toBe(true);
+        expect(shell.context.fs.readSymlink('/bin/nano')).toBe('/usr/lib/nano/nano.wasm');
+        expect(shell.context.fs.isSymlink('/bin/nano-wasm')).toBe(true);
+        expect(shell.context.fs.readSymlink('/bin/nano-wasm')).toBe('/usr/lib/nano/nano.wasm');
+
+        // Verify /var/lib/wbt is not created
+        expect(shell.context.fs.exists('/var/lib/wbt')).toBe(false);
+    });
+
+    it('runs WASM command directly from /bin without wbt registered in context', async () => {
+        await run(shell, 'wbt install nano');
+
+        // Persist filesystem as BRFS binary container (the official format for brsh persistence)
+        const containerBytes = shell.context.fs.toBinaryContainer();
+
+        // Create a completely fresh shell with the restored filesystem and NO wbt command registered
+        const cleanShell = await createShell({
+            filesystem: containerBytes
+        });
+        if (cleanShell.context.fs.exists('/bin/wbt')) {
+            cleanShell.context.fs.deleteFileByPath('/bin/wbt');
+        }
+
+        // Verify wbt is NOT in cleanShell
+        expect(cleanShell.context.getCommand('wbt')).toBeNull();
+
+        // Invoking bare command 'nano --version' runs WASM directly through Shell & WasmCommand
+        const res = await run(cleanShell, 'nano --version');
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
+
+        // Invoking via full path '/bin/nano --version' also runs WASM directly
+        const binRes = await run(cleanShell, '/bin/nano --version');
+        expect(binRes.exitCode).toBe(0);
+        expect(binRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
+
+        // Invoking via alias 'nano-wasm --version' also runs WASM directly
+        const aliasRes = await run(cleanShell, 'nano-wasm --version');
+        expect(aliasRes.exitCode).toBe(0);
+        expect(aliasRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
+    });
+
+    it('auto-wires sibling JS and WASM in /usr/lib/<pkg>/ without wbt runtime', async () => {
+        const dummyWasmBytes = new Uint8Array([
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+            0x03, 0x02, 0x01, 0x00,
+            0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x00,
+            0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b
+        ]);
+
+        const jsCode = `
+            module.exports = async function(Module) {
+                return {
+                    exec: async function(args) {
+                        return 0;
+                    }
+                };
+            };
+        `;
+
+        // Co-locate .wasm and .js in /usr/lib/mytool/
+        const WasmCmd = shell.constructor.WasmCommand;
+        WasmCmd.writeBytesToFs(shell.context.fs, '/usr/lib/mytool/mytool.wasm', dummyWasmBytes);
+        shell.context.fs.setFileByPath('/usr/lib/mytool/mytool.js', jsCode, true);
+        shell.context.fs.setMode('/usr/lib/mytool/mytool.wasm', 0o755);
+        shell.context.fs.setMode('/usr/lib/mytool/mytool.js', 0o755);
+
+        // Create symlink /bin/mytool -> /usr/lib/mytool/mytool.js
+        shell.context.fs.createSymlink('/usr/lib/mytool/mytool.js', '/bin/mytool');
+        shell.context.fs.setMode('/bin/mytool', 0o755);
+
+        const execRes = await run(shell, 'mytool hello world');
+        expect(execRes.exitCode).toBe(0);
+    });
+
+    it('registers doom package with aliases doom-wasm, doom-ascii, and freedoom launcher script', async () => {
+        const BaseWbt = createTestWbt();
+        const registry = BaseWbt.DEFAULT_REGISTRY;
+        expect(registry.doom).toBeDefined();
+        expect(registry.doom.bin).toBe('doom');
+        expect(registry.doom.aliases).toContain('doom-wasm');
+        expect(registry.doom.aliases).toContain('doom-ascii');
+        expect(registry.doom.scripts).toBeDefined();
+        expect(registry.doom.scripts.freedoom).toContain('/bin/freedoom');
+        expect(registry.doom.type).toBe('custom-wasm');
+
+        // Test search by script name 'freedoom'
+        const searchRes = await run(shell, 'wbt search freedoom');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('doom/wasm');
+
+        // Test show
+        const showRes = await run(shell, 'wbt show freedoom');
+        expect(showRes.exitCode).toBe(0);
+        expect(showRes.output.join('\n')).toContain('Package: doom');
+        expect(showRes.output.join('\n')).toContain('Aliases: doom-wasm, doom-ascii');
+        expect(showRes.output.join('\n')).toContain('Scripts: freedoom');
+        expect(showRes.output.join('\n')).toContain('doom.wasm');
+    });
+
+    it('installs freedoom launcher script alongside doom, auto-downloads freedoom1.wad if missing, and reuses cached WAD on second run', async () => {
+        // Ephemeral wbt run freedoom --help works even before installing doom
+        const ephemeralHelp = await run(shell, 'wbt run freedoom --help');
+        expect(ephemeralHelp.exitCode).toBe(0);
+        expect(ephemeralHelp.output.join('\n')).toContain('Usage: freedoom');
+        expect(shell.context.fs.exists('/bin/freedoom')).toBe(false);
+
+        const installRes = await run(shell, 'wbt install doom');
+        expect(installRes.exitCode).toBe(0);
+
+        expect(shell.context.fs.exists('/usr/lib/doom/doom.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/doom/freedoom')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/doom')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/freedoom')).toBe(true);
+        expect(shell.context.fs.readSymlink('/bin/freedoom')).toBe('/usr/lib/doom/freedoom');
+
+        // Help works without fetching WAD
+        const helpRes = await run(shell, 'freedoom --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toContain('Usage: freedoom');
+        expect(shell.context.fs.exists('/usr/share/games/doom/freedoom1.wad')).toBe(false);
+
+        // Mock global fetch for curl WAD download
+        const origFetch = globalThis.fetch;
+        let wad1FetchCount = 0;
+        let wad2FetchCount = 0;
+        const fakeWadBytes = new Uint8Array([0x49, 0x57, 0x41, 0x44, 0x00, 0x00, 0x00, 0x00]); // "IWAD\0\0\0\0"
+        globalThis.fetch = async (url) => {
+            if (String(url).includes('freedoom1.wad')) {
+                wad1FetchCount++;
+                return new Response(fakeWadBytes, {
+                    status: 200,
+                    headers: { 'content-type': 'application/octet-stream', 'content-length': String(fakeWadBytes.length) }
+                });
+            }
+            if (String(url).includes('freedoom2.wad')) {
+                wad2FetchCount++;
+                return new Response(fakeWadBytes, {
+                    status: 200,
+                    headers: { 'content-type': 'application/octet-stream', 'content-length': String(fakeWadBytes.length) }
+                });
+            }
+            return origFetch(url);
+        };
+
+        try {
+            // First run: downloads freedoom1.wad to /usr/share/games/doom/freedoom1.wad and runs doom
+            const run1 = await run(shell, 'freedoom');
+            expect(run1.exitCode).toBe(0);
+            expect(wad1FetchCount).toBe(1);
+            expect(shell.context.fs.exists('/usr/share/games/doom/freedoom1.wad')).toBe(true);
+
+            // Second run: WAD already exists at /usr/share/games/doom/freedoom1.wad -> skips download!
+            const run2 = await run(shell, 'freedoom');
+            expect(run2.exitCode).toBe(0);
+            expect(wad1FetchCount).toBe(1);
+
+            // Phase 2: downloads freedoom2.wad to /usr/share/games/doom/freedoom2.wad
+            const runPhase2 = await run(shell, 'freedoom --phase2');
+            expect(runPhase2.exitCode).toBe(0);
+            expect(wad2FetchCount).toBe(1);
+            expect(shell.context.fs.exists('/usr/share/games/doom/freedoom2.wad')).toBe(true);
+        } finally {
+            globalThis.fetch = origFetch;
+        }
+
+        // Removing doom removes /bin/freedoom and /usr/lib/doom/freedoom cleanly
+        const rmRes = await run(shell, 'wbt remove doom');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/freedoom')).toBe(false);
+        expect(shell.context.fs.isSymlink('/bin/freedoom')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/doom/freedoom')).toBe(false);
+    });
+
+    it('forwards interactive TTY input and raw ANSI stdout cleanly when an interactive WASM binary is launched inside a shell script', async () => {
+        await run(shell, 'wbt install nano');
+
+        // Create a wrapper shell script similar to freedoom
+        shell.context.fs._setFileRaw('/bin/edit-note', '#!/bin/sh\nnano /home/script-note.txt\n', true);
+        shell.context.fs.setMode('/bin/edit-note', 0o755);
+
+        const rawChunks = [];
+        const onData = (chunk) => rawChunks.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
+        shell.stdout.on('data', onData);
+
+        const cmdPromise = shell.onCommand('edit-note');
+        await new Promise(r => setTimeout(r, 120));
+
+        for (const ch of 'Via wrapper!') {
+            shell.write(ch);
+            await new Promise(r => setTimeout(r, 8));
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // Save: Ctrl+O, Enter, Exit: Ctrl+X
+        shell.write('\x0f');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\r');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\x18');
+
+        await cmdPromise;
+        shell.stdout.off('data', onData);
+
+        expect(shell.lastCode).toBe(0);
+        expect(rawChunks.join('')).toContain('\x1b[?1049h');
+        const saved = shell.context.fs.getFileByPath('/home/script-note.txt');
+        expect(saved).toContain('Via wrapper!');
+    });
+
+    it('Wbt.restoreInstalled is a safe no-op on already-restored filesystems', async () => {
+        await run(shell, 'wbt install nano');
+        expect(shell.context.fs.isSymlink('/bin/nano')).toBe(true);
+
+        const BaseWbt = createTestWbt();
+        BaseWbt.restoreInstalled(shell);
+
+        // /bin/nano remains a symlink to /usr/lib/nano/nano.wasm
+        expect(shell.context.fs.isSymlink('/bin/nano')).toBe(true);
+        expect(shell.context.fs.readSymlink('/bin/nano')).toBe('/usr/lib/nano/nano.wasm');
+    });
+
+    it('cleans up temporary files in /tmp after wbt run', async () => {
+        const runRes = await run(shell, 'wbt run nano --version');
+        expect(runRes.exitCode).toBe(0);
+        expect(runRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
+
+        // Not installed permanently
+        expect(shell.context.fs.exists('/bin/nano')).toBe(false);
+
+        // Check that /tmp does not contain lingering .wbt-run- directories
+        const tmpDir = shell.context.fs.getFileByPath('/tmp') || {};
+        const tmpKeys = Object.keys(tmpDir);
+        expect(tmpKeys.some(k => k.startsWith('.wbt-run-'))).toBe(false);
     });
 });
 

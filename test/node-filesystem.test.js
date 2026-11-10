@@ -148,6 +148,13 @@ module.exports = Hello;
         expect(exitCode).toBe(0);
         expect(output).toContain('hello from js bin');
     });
+
+    it('fs.loadModule loads CommonJS modules from disk on NodeFileSystem', async () => {
+        const modPath = path.join(tmpDir, 'helper.js');
+        fs.writeFileSync(modPath, `module.exports = { answer: 42 };\n`);
+        const loaded = shell.context.fs.loadModule(modPath);
+        expect(loaded).toEqual({ answer: 42 });
+    });
 });
 
 // ---------------------------------------------------------------------------

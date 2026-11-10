@@ -261,7 +261,7 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 ## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `nano`, `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `nano`, `doom` / `freedoom`, `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). It is **not** included in the default shell bundle unless you explicitly register it.
 
 ### Enabling `wbt`
 
@@ -282,10 +282,23 @@ const Wbt = require('brsh/wbt');
 const shell = new Shell({ filesystem: {} });
 shell.context.setCommand(Wbt);
 
-// Optional: customize registry/sources or restore previously installed packages from a persisted FS
+// Optional: customize registry or sources
 const CustomWbt = Wbt.configure({ registry: { /* custom packages */ } });
-Wbt.restoreInstalled(shell);
 ```
+
+### Pre-Installing Packages Prior to Container Packaging (Developer Workflow)
+
+To ship pre-installed packages (such as `nano`, `doom`, `sqlite3`, or `wllama`) in your `.brfs` binary container without needing users to run `wbt` in the browser or bundling `wbt` at runtime:
+
+```shell
+# 1. Install packages into your local filesystem root
+npx wbt --root ./my-filesystem install nano doom wllama sqlite3
+
+# 2. Package into a standalone .brfs container
+exportFileSystem ./my-filesystem -o ./dist/fs.brfs
+```
+
+When booted in the browser (`new Shell({ filesystem: '/dist/fs.brfs' })`), `nano`, `doom`, `sqlite3`, and `wllama` run immediately as native commands from `/bin` without `wbt` or extra network requests.
 
 ### Loading WASM CLI Tools without `wbt` (Base Shell)
 
@@ -318,13 +331,18 @@ wbt show sqlite3
 wbt update
 
 # Install curated WASM packages into /bin
-wbt install nano wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
+wbt install nano doom wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
 
 # Run a package directly without permanently installing it
 wbt run jq -r ".name" package.json
 
 # Run GNU nano text editor (compiled to WebAssembly with wide-char ncurses and built-in terminfo)
 nano /home/hello.txt
+
+# Play Doom in 24-bit ANSI TrueColor (`freedoom` downloads & caches Freedoom Phase 1/2 WAD into /usr/share/games/doom/)
+freedoom
+freedoom --phase2
+doom -iwad /home/doom1.wad -nosound
 
 # Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
 wllama -p "Explain WebGPU in one sentence." # uses default SmolLM2 model (or pass -m qwen)

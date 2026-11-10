@@ -48,7 +48,37 @@ exportFileSystem ./demo/filesystem -o ./demo/fs.js -v fs --binary --compress
 
 ---
 
-## 2. `brsh` (`bin/brsh-shell.js`)
+## 2. `wbt` (`bin/wbt.js`)
+
+Standalone developer CLI to install WASM packages directly into a filesystem directory before packaging into a `.brfs` binary container with `exportFileSystem`.
+
+### Pre-Installing Packages Prior to Container Export
+
+```shell
+# Pre-install packages into a local filesystem root
+npx wbt --root ./demo/filesystem install nano wllama doom sqlite3
+
+# Inspect installed packages in the root
+npx wbt --root ./demo/filesystem list --installed
+
+# Export the pre-installed filesystem into a standalone .brfs container
+exportFileSystem ./demo/filesystem -o ./demo/fs.brfs
+```
+
+Packages are placed in `/usr/lib/<pkg>/` with symbolic links in `/bin/`. Because `brsh` resolves and executes commands, `.wasm` binaries, and `.js` modules directly from `/bin`, pre-packaged containers run out of the box in the browser without needing `wbt` or browser network calls.
+
+### CLI Options
+
+| Option                | Alias | Description |
+| ------                | ----- | ----------- |
+| `--root <dir>`        | `-r`  | Target filesystem directory (required for `install`, `remove`, `list`, `update`) |
+| `--allow-system-root` |       | Explicit safety override to allow operating on host `/` |
+| `--help`              | `-h`  | Show CLI help and available curated packages |
+| `--version`           | `-v`  | Show `wbt` CLI version |
+
+---
+
+## 3. `brsh` (`bin/brsh-shell.js`)
 
 Interactive Node.js REPL and non-interactive script/command runner backed by `brsh` (with `wbt` and `pico` pre-registered).
 
@@ -68,12 +98,12 @@ brsh -e -x ./myscript.sh arg1 arg2
 
 ---
 
-## 3. `bin/brsh-cmd.js`
+## 4. `bin/brsh-cmd.js`
 
 Multi-call CLI wrapper used by the BusyBox compatibility test suite. Can be invoked directly (`node bin/brsh-cmd.js grep foo file.txt`) or symlinked under a command's name (`cat`, `cp`, `grep`, `ls`, `mv`, `rm`, `busybox`, etc.) to run any `brsh` command against the real Node.js filesystem.
 
 ---
 
-## 4. `bin/zsh-server.js`
+## 5. `bin/zsh-server.js`
 
 Zero-dependency HTTP + WebSocket server (`npm run demo:zsh`) that spawns a real OS shell (`$SHELL` / `/bin/zsh`) via [`lib/terminal/PtyBridge.js`](../lib/terminal/PtyBridge.js) and attaches it to `brsh/terminal` in the browser at `http://127.0.0.1:3080`.

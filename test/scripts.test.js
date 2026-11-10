@@ -531,4 +531,34 @@ describe('multiline quotes and line continuations in scripts', () => {
         const { output } = await run(shell, '/scripts/if-not-true.sh');
         expect(output).toEqual(['expected']);
     });
+
+    it('expands $@ in for loops and matches pipe-separated alternatives in case clauses', async () => {
+        const shell = await createShell({
+            filesystem: {
+                scripts: {
+                    'args-case.sh': [
+                        '#!/bin/sh',
+                        'for ARG in $@',
+                        'do',
+                        '    case "$ARG" in',
+                        '        --help|-h)',
+                        '            echo "matched-help"',
+                        '            ;;',
+                        '        --phase2|-2)',
+                        '            echo "matched-2"',
+                        '            ;;',
+                        '        *)',
+                        '            echo "other:$ARG"',
+                        '            ;;',
+                        '    esac',
+                        'done'
+                    ].join('\n')
+                }
+            },
+            permissions: execPerms('/scripts/args-case.sh')
+        });
+        const res = await run(shell, '/scripts/args-case.sh -2 --help custom');
+        expect(res.exitCode).toBe(0);
+        expect(res.output).toEqual(['matched-2', 'matched-help', 'other:custom']);
+    });
 });

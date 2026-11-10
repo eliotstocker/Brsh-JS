@@ -4,6 +4,7 @@ const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
 const WasmCommand = require('./lib/WasmCommand');
+const JsCommand = require('./lib/JsCommand');
 const Command = require('./lib/Command');
 const InteractiveCommand = require('./lib/InteractiveCommand');
 const { TtyStream } = require('./lib/TtyStream');
@@ -1294,81 +1295,86 @@ class Shell extends EventEmitter {
         return segments;
     }
 
+    _loadJsCommand(scriptPath, content) {
+        if (!this._jsCommandCache) {
+            this._jsCommandCache = new Map();
+        }
+        return JsCommand.load(this.context.fs, scriptPath, content, this._jsCommandCache);
+    }
+
+    _findExecutablePath(basePath) {
+        if (this.context.fs.exists(basePath)) return basePath;
+        if (!basePath.endsWith('.wasm') && this.context.fs.exists(`${basePath}.wasm`)) return `${basePath}.wasm`;
+        if (!basePath.endsWith('.js') && this.context.fs.exists(`${basePath}.js`)) return `${basePath}.js`;
+        return null;
+    }
+
+    _resolveCommandFromPath(binLocation) {
+        const targetPath = this.context.fs.realpath(binLocation);
+        if (!this.context.fs.isExecutable(binLocation) && !this.context.fs.isExecutable(targetPath)) {
+            throw new Error(`${binLocation}: permission denied`);
+        }
+
+        const handle = this.context.fs.getFileByPath(targetPath);
+
+        if (JsCommand.isCommandClass(handle)) {
+            return handle;
+        }
+        if (typeof handle === 'string' && handle.startsWith('#!')) {
+            return ScriptCommand.bind(this, handle);
+        }
+        if (WasmCommand.isWasmFile(targetPath, handle)) {
+            return WasmCommand.bind(null, targetPath);
+        }
+        if (JsCommand.isJsFile(targetPath, handle)) {
+            return this._loadJsCommand(targetPath, handle);
+        }
+
+        return null;
+    }
+
     _parseCommand(command) {
-        if(command.startsWith('./') || command.startsWith('/')) {
-            const handle = this.context.fs._getFileRaw(command);
-            if(!handle) {
+        if (command.startsWith('./') || command.startsWith('/') || command.startsWith('../') || command.includes('/')) {
+            const absPath = this._findExecutablePath(this.context.fs.absolutePath(command));
+            if (!absPath) {
                 throw new Error(`${command}: No such file or directory`);
             }
 
-            if(handle.constructor === Object) {
+            const stat = this.context.fs.stat(absPath);
+            if (stat && stat.isDirectory) {
                 throw new Error(`${command}: is a directory`);
             }
 
-            if(handle.prototype && typeof handle.prototype.run === 'function' && typeof handle.prototype.runCommand === 'function') {
-                if (!this.context.fs.isExecutable(command)) {
-                    throw new Error(`${command}: permission denied`);
-                }
-                return handle;
-            }
-
-            if(handle.constructor === String && handle.startsWith('#!')) {
-                if (!this.context.fs.isExecutable(command)) {
-                    throw new Error(`${command}: permission denied`);
-                }
-                return ScriptCommand.bind(this, handle);
-            }
-
-            if(this._isWasmFile(command, handle)) {
-                if (!this.context.fs.isExecutable(command)) {
-                    throw new Error(`${command}: permission denied`);
-                }
-                return WasmCommand.bind(null, command);
-            }
-
-            // Executable .js files on the real filesystem: load via require() as a Command class.
-            if (this.context.fs.isRealFilesystem && typeof handle === 'string' && command.endsWith('.js')) {
-                if (!this.context.fs.isExecutable(command)) {
-                    throw new Error(`${command}: permission denied`);
-                }
-                const abs = this.context.fs.absolutePath(command);
-                try {
-                    const mod = require(abs);
-                    const Cls = mod.default || mod;
-                    if (typeof Cls === 'function' && typeof Cls.prototype.run === 'function' && typeof Cls.prototype.runCommand === 'function') {
-                        return Cls;
-                    }
-                } catch(e) {
-                    // Not a loadable command module — fall through
-                }
-            }
-
-            throw new Error(`${command}: permission denied`);
-        }
-        let cmd = this.context.getCommand(command);
-        let cmdName = command;
-        if (!cmd && !command.endsWith('.wasm')) {
-            cmd = this.context.getCommand(`${command}.wasm`);
-            if (cmd) cmdName = `${command}.wasm`;
-        }
-
-        if(!cmd) {
-            throw new Error(`${command}: Command not found`);
-        }
-
-        const binLocation = `${this.path}/${cmdName}`;
-        if (this._isWasmFile(binLocation, cmd)) {
-            if (!this.context.fs.isExecutable(binLocation)) {
+            const cmd = this._resolveCommandFromPath(absPath);
+            if (!cmd) {
                 throw new Error(`${command}: permission denied`);
             }
-            return WasmCommand.bind(null, binLocation);
+            return cmd;
         }
 
-        if (typeof cmd === 'string' && cmd.startsWith('#!')) {
-            return ScriptCommand.bind(this, cmd);
+        // 1. Built-in registered commands take precedence (mkdir, echo, cat, etc.)
+        const builtin = this.context.getCommand(command)
+            || (!command.endsWith('.wasm') && this.context.getCommand(`${command}.wasm`))
+            || (!command.endsWith('.js') && this.context.getCommand(`${command}.js`));
+
+        if (JsCommand.isCommandClass(builtin)) {
+            return builtin;
+        }
+        if (typeof builtin === 'string' && builtin.startsWith('#!')) {
+            return ScriptCommand.bind(this, builtin);
         }
 
-        return cmd;
+        // 2. Search PATH directories for installed binaries, symlinks, scripts, and wasm
+        const pathDirs = (this.context.getVar('PATH') || '/bin').split(':').filter(Boolean);
+        for (const dir of pathDirs) {
+            const binLocation = this._findExecutablePath(`${dir}/${command}`);
+            if (binLocation) {
+                const cmd = this._resolveCommandFromPath(binLocation);
+                if (cmd) return cmd;
+            }
+        }
+
+        throw new Error(`${command}: Command not found`);
     }
 
     async _parseCommandLine(string) {
@@ -1614,18 +1620,6 @@ class Shell extends EventEmitter {
         return parts;
     }
 
-    _isWasmFile(path, content) {
-        if (path.endsWith('.wasm') || path.endsWith('.wat')) return true;
-        if (content instanceof Uint8Array) {
-            return content.length >= 4 && content[0] === 0x00 && content[1] === 0x61 && content[2] === 0x73 && content[3] === 0x6d;
-        }
-        if (typeof content !== 'string') return false;
-        // Binary WASM: magic bytes \0asm
-        if (content.charCodeAt(0) === 0 && content.slice(1, 4) === 'asm') return true;
-        // WAT text format
-        return content.trimStart().startsWith('(module');
-    }
-
     static _escapeRegExp(string) {
         return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
@@ -1664,6 +1658,7 @@ Shell.InteractiveCommand = InteractiveCommand;
 Shell.WasmCommand = WasmCommand;
 Shell.createWasmCommand = WasmCommand.createGenericWasmCommand || WasmCommand.createCommand;
 Shell.ReplCommand = require('./lib/ReplCommand');
+Shell.JsCommand = JsCommand;
 Shell.FS = BaseFileSystem;
 Shell.BinaryContainer = require('./lib/BinaryContainer');
 Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
