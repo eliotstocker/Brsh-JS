@@ -368,6 +368,7 @@ wbt remove sqlite3
 * **[wasi-sdk](https://github.com/WebAssembly/wasi-sdk)** (recommended): Complete Clang/LLVM toolchain with `wasi-libc`.
 * **[Binaryen](https://github.com/WebAssembly/binaryen)** (`wasm-opt`): Required for instrumenting binaries with Asyncify for cooperative multitasking.
 * **[wasi-termios-brsh](https://github.com/eliotstocker/wasi-termios-brsh)**: Drop-in POSIX `<termios.h>` and `<sys/ioctl.h>` compatibility library for interactive terminal applications and games.
+* **[nano-wasm](https://github.com/eliotstocker/nano-wasm)**: Real-world reference repository demonstrating a complete C build setup (wasi-sdk, static ncurses 6.5, compiled-in terminfo fallbacks, and build scripts).
 
 ---
 
@@ -475,6 +476,16 @@ If `wbt` is enabled in the shell:
 wbt install mygame https://example.com/mygame.wasm
 mygame
 ```
+
+---
+
+### Real-World Example: `nano-wasm`
+
+For a complete, production reference implementation of an interactive C terminal application compiled to WebAssembly for `brsh`, check out [**eliotstocker/nano-wasm**](https://github.com/eliotstocker/nano-wasm). It demonstrates:
+* Compiling a complex C codebase (`GNU nano 8.0`) targeting `wasm32-wasip1` with `wasi-sdk`.
+* Statically linking wide-character `ncurses 6.5` with built-in terminfo fallbacks (`xterm-256color`, `vt100`, etc.) without requiring external terminfo files.
+* Handling dynamic terminal window resizing (`TIOCGWINSZ`) and raw terminal input.
+* Automated build scripts downloading toolchains and generating stripped standalone `.wasm` bundles.
 
 ## Binary Filesystem Container (`.brfs`) & Client-Side Persistence
 

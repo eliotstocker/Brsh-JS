@@ -136,5 +136,7 @@ shell.context.setCommand(MyWasmTool);
 `brsh` supports WASI Preview 1 binaries with non-blocking I/O (`FDFLAGS_NONBLOCK`), cooperative sleep/timers via Asyncify (`poll_oneoff`, `clock_nanosleep`), and terminal dimension queries.
 
 * For POSIX terminal raw mode, baud rates, and `TIOCGWINSZ`, use [**`wasi-termios-brsh`**](https://github.com/eliotstocker/wasi-termios-brsh).
+* For a complete real-world reference implementation of an interactive C TUI editor with ncurses targeting `brsh`, inspect [**`nano-wasm`**](https://github.com/eliotstocker/nano-wasm).
 * For complete step-by-step instructions on compiling with `wasi-sdk`, configuring `termios`, and instrumenting with `wasm-opt --asyncify`, see [Compiling C / C++ Applications in the main Readme](../Readme.md#compiling-c--c-applications-for-brsh).
+
 
