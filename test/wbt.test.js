@@ -728,13 +728,13 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         const installRes = await run(shell, 'wbt install sqlite3');
         expect(installRes.exitCode).toBe(0);
         expect(fetchedUrls.some(u => u.includes('sql-wasm.wasm'))).toBe(true);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/sqlite3.wasm')).toBe(true);
 
         const showRes = await run(shell, 'wbt show sqlite3');
         expect(showRes.output.join('\n')).toContain('WASM-File: /usr/lib/sqlite3/sqlite3.wasm');
 
         await run(shell, 'wbt remove sqlite3');
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/sqlite3.wasm')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/sqlite3.wasm')).toBe(false);
     });
 
     it('removes an installed package and unregisters its binary from /bin', async () => {
@@ -761,15 +761,19 @@ describe('WBT CLI subcommands (list, search, show, install, remove, update)', ()
         expect(showCustom.output.join('\n')).toContain('Remote registry test package');
     });
 
-    it('restores installed commands from /var/lib/wbt/installed.json via Wbt.restoreInstalled', async () => {
+    it('treats /usr/lib/<pkg>/ as the single source of truth without creating /var/lib/wbt/installed.json', async () => {
         await run(shell, 'wbt install sqlite3');
+        expect(shell.context.fs.exists('/var/lib/wbt/installed.json')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/sqlite3/package.json')).toBe(true);
+
         const rawFs = shell.context.fs.getRaw();
         const rawPerms = shell.context.fs.getRawPermissions();
 
-        const savedInstalledJson = rawFs.var.lib.wbt['installed.json'];
+        // Restore filesystem into a new shell from the directory structure alone
         const shell2 = await createShell({
             filesystem: {
-                var: { lib: { wbt: { 'installed.json': savedInstalledJson } } }
+                usr: rawFs.usr,
+                bin: rawFs.bin
             },
             permissions: rawPerms
         });
@@ -1405,7 +1409,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
     it('installs nano and nano-wasm into /bin and runs --version and --help', async () => {
         const installRes = await run(shell, 'wbt install nano');
         expect(installRes.exitCode).toBe(0);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
 
@@ -1433,13 +1437,13 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         await run(shell, 'wbt install nano-wasm');
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
 
         const rmRes = await run(shell, 'wbt remove nano');
         expect(rmRes.exitCode).toBe(0);
         expect(shell.context.fs.exists('/bin/nano')).toBe(false);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(false);
-        expect(shell.context.fs.exists('/var/lib/wbt/wasm/nano.wasm')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(false);
     });
 
     it('runs nano even when invoked with readonlyContext without context.fs', async () => {
@@ -1561,8 +1565,8 @@ describe('WBT filesystem installer architecture (installer, not runtime)', () =>
         expect(shell.context.fs.isSymlink('/bin/nano-wasm')).toBe(true);
         expect(shell.context.fs.readSymlink('/bin/nano-wasm')).toBe('/usr/lib/nano/nano.wasm');
 
-        // Backward compatibility symlink in /var/lib/wbt/wasm
-        expect(shell.context.fs.isSymlink('/var/lib/wbt/wasm/nano.wasm')).toBe(true);
+        // Verify /var/lib/wbt is not created
+        expect(shell.context.fs.exists('/var/lib/wbt')).toBe(false);
     });
 
     it('runs WASM command directly from /bin without wbt registered in context', async () => {

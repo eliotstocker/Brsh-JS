@@ -1295,11 +1295,21 @@ class Shell extends EventEmitter {
     }
 
     _loadJsCommand(scriptPath, content) {
+        if (!this._jsCommandCache) {
+            this._jsCommandCache = new Map();
+        }
+        const cacheKey = scriptPath;
+        const cached = this._jsCommandCache.get(cacheKey);
+        if (cached && cached.content === content) {
+            return cached.Cmd;
+        }
+
         if (typeof content === 'function') {
-            if (content.prototype && typeof content.prototype.run === 'function') {
-                return content;
-            }
-            return this._wrapJsModuleAsCommand(scriptPath, content);
+            const Cmd = (content.prototype && typeof content.prototype.run === 'function')
+                ? content
+                : this._wrapJsModuleAsCommand(scriptPath, content);
+            this._jsCommandCache.set(cacheKey, { content, Cmd });
+            return Cmd;
         }
 
         let exported = null;
@@ -1309,11 +1319,12 @@ class Shell extends EventEmitter {
             throw new Error(`${scriptPath}: Failed to evaluate script: ${e.message}`);
         }
 
-        if (typeof exported === 'function' && exported.prototype && typeof exported.prototype.run === 'function') {
-            return exported;
-        }
+        const Cmd = (typeof exported === 'function' && exported.prototype && typeof exported.prototype.run === 'function')
+            ? exported
+            : this._wrapJsModuleAsCommand(scriptPath, exported);
 
-        return this._wrapJsModuleAsCommand(scriptPath, exported);
+        this._jsCommandCache.set(cacheKey, { content, Cmd });
+        return Cmd;
     }
 
     _wrapJsModuleAsCommand(scriptPath, exported) {
@@ -1350,6 +1361,7 @@ class Shell extends EventEmitter {
         }
 
         const handle = this.context.fs.getFileByPath(targetPath);
+        const binName = binLocation.split('/').pop().replace(/\.(wasm|wat|js)$/i, '').toLowerCase();
 
         if (typeof handle === 'function') {
             if (handle.prototype && typeof handle.prototype.run === 'function' && typeof handle.prototype.runCommand === 'function') {
@@ -1363,21 +1375,18 @@ class Shell extends EventEmitter {
         }
 
         if (this._isWasmFile(targetPath, handle)) {
-            const binName = binLocation.split('/').pop().replace(/\.(wasm|wat)$/i, '').toLowerCase();
             let pkgMeta = null;
             try {
-                const raw = this.context.fs._getFileRaw('/var/lib/wbt/installed.json');
-                if (typeof raw === 'string') {
-                    const parsed = JSON.parse(raw);
-                    pkgMeta = parsed.packages && (parsed.packages[binName] || Object.values(parsed.packages).find(p => p.bin === binName || (p.aliases && p.aliases.includes(binName))));
+                const dirParts = targetPath.split('/').filter(Boolean);
+                dirParts.pop();
+                const pkgJsonPath = '/' + dirParts.join('/') + '/package.json';
+                if (this.context.fs.exists(pkgJsonPath)) {
+                    const rawJson = this.context.fs.getFileByPath(pkgJsonPath);
+                    if (typeof rawJson === 'string') {
+                        pkgMeta = JSON.parse(rawJson);
+                    }
                 }
-            } catch { /* ignore */ }
-            if (!pkgMeta) {
-                try {
-                    const { DEFAULT_REGISTRY } = require('./lib/wbt/registry');
-                    pkgMeta = DEFAULT_REGISTRY[binName] || Object.values(DEFAULT_REGISTRY).find(p => p.bin === binName || (p.aliases && p.aliases.includes(binName)));
-                } catch { /* ignore */ }
-            }
+            } catch (_) {}
 
             class ExecutableWasmCommand extends WasmCommand {
                 static get name() { return binName; }
@@ -1400,7 +1409,15 @@ class Shell extends EventEmitter {
         }
 
         if (targetPath.endsWith('.js') || (typeof handle === 'string' && (handle.includes('export') || handle.includes('module.exports')))) {
-            return this._loadJsCommand(targetPath, handle);
+            const Loaded = this._loadJsCommand(targetPath, handle);
+            if (Loaded && Loaded.name !== binName) {
+                class AliasedCommand extends Loaded {
+                    static get name() { return binName; }
+                    get name() { return binName; }
+                }
+                return AliasedCommand;
+            }
+            return Loaded;
         }
 
         return null;
@@ -1408,9 +1425,15 @@ class Shell extends EventEmitter {
 
     _parseCommand(command) {
         if(command.startsWith('./') || command.startsWith('/') || command.startsWith('../') || command.includes('/')) {
-            const absPath = this.context.fs.absolutePath(command);
+            let absPath = this.context.fs.absolutePath(command);
             if(!this.context.fs.exists(absPath)) {
-                throw new Error(`${command}: No such file or directory`);
+                if (!command.endsWith('.wasm') && this.context.fs.exists(`${absPath}.wasm`)) {
+                    absPath = `${absPath}.wasm`;
+                } else if (!command.endsWith('.js') && this.context.fs.exists(`${absPath}.js`)) {
+                    absPath = `${absPath}.js`;
+                } else {
+                    throw new Error(`${command}: No such file or directory`);
+                }
             }
 
             const stat = this.context.fs.stat(absPath);
@@ -1430,6 +1453,9 @@ class Shell extends EventEmitter {
         if (!builtin && !command.endsWith('.wasm')) {
             builtin = this.context.getCommand(`${command}.wasm`);
         }
+        if (!builtin && !command.endsWith('.js')) {
+            builtin = this.context.getCommand(`${command}.js`);
+        }
         if (typeof builtin === 'function' && builtin.prototype && typeof builtin.prototype.run === 'function') {
             return builtin;
         }
@@ -1441,8 +1467,12 @@ class Shell extends EventEmitter {
         const pathDirs = (this.context.getVar('PATH') || '/bin').split(':').filter(Boolean);
         for (const dir of pathDirs) {
             let binLocation = `${dir}/${command}`;
-            if (!this.context.fs.exists(binLocation) && !command.endsWith('.wasm') && this.context.fs.exists(`${binLocation}.wasm`)) {
-                binLocation = `${binLocation}.wasm`;
+            if (!this.context.fs.exists(binLocation)) {
+                if (!command.endsWith('.wasm') && this.context.fs.exists(`${binLocation}.wasm`)) {
+                    binLocation = `${binLocation}.wasm`;
+                } else if (!command.endsWith('.js') && this.context.fs.exists(`${binLocation}.js`)) {
+                    binLocation = `${binLocation}.js`;
+                }
             }
 
             if (this.context.fs.exists(binLocation)) {

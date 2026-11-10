@@ -58,19 +58,18 @@ describe('buildStructure', () => {
         expect(filesystem['readme.txt']).toBe('hello');
     });
 
-    it('strips the .js extension from JavaScript file keys', () => {
+    it('preserves the .js extension from JavaScript file keys and stores content directly', () => {
         writeFileSync(join(root, 'app.js'), 'module.exports = {}');
         const { filesystem } = buildStructure(root);
-        expect(filesystem).toHaveProperty('app');
-        expect(filesystem).not.toHaveProperty('app.js');
-        expect(filesystem['app']).toMatch(/^require\('/);
+        expect(filesystem).toHaveProperty('app.js');
+        expect(filesystem).not.toHaveProperty('app');
+        expect(filesystem['app.js']).toBe('module.exports = {}');
     });
 
-    it('uses an absolute path in the require() string for JavaScript files', () => {
+    it('stores plain text JavaScript content for JavaScript files', () => {
         writeFileSync(join(root, 'data.js'), 'module.exports = "content"');
         const { filesystem } = buildStructure(root);
-        const reqPath = filesystem.data.match(/require\('(.+?)'\)/)[1];
-        expect(reqPath).toBe(resolve(root, 'data.js'));
+        expect(filesystem['data.js']).toBe('module.exports = "content"');
     });
 
     it('recursively includes nested directories', () => {
@@ -89,7 +88,7 @@ describe('buildStructure', () => {
         mkdirSync(b);
         writeFileSync(join(b, 'deep.js'), 'module.exports = "deep"');
         const { filesystem } = buildStructure(root);
-        expect(filesystem.a.b['deep']).toMatch(/^require\('/);
+        expect(filesystem.a.b['deep.js']).toBe('module.exports = "deep"');
     });
 
     it('ignores .DS_Store files', () => {
@@ -108,7 +107,30 @@ describe('buildStructure', () => {
         expect(Object.keys(filesystem)).toHaveLength(3);
         expect(filesystem).toHaveProperty('a.txt');
         expect(filesystem).toHaveProperty('b.txt');
-        expect(filesystem).toHaveProperty('c');
+        expect(filesystem).toHaveProperty('c.js');
+    });
+
+    it('serializes filesystem symlinks into SymlinkRef references', () => {
+        const { symlinkSync } = require('fs');
+        const { SymlinkRef } = require('../lib/BaseFileSystem.js');
+        mkdirSync(join(root, 'bin'));
+        mkdirSync(join(root, 'usr', 'lib', 'nano'), { recursive: true });
+        writeFileSync(join(root, 'usr', 'lib', 'nano', 'nano.wasm'), Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]));
+        symlinkSync('/usr/lib/nano/nano.wasm', join(root, 'bin', 'nano'));
+
+        const { filesystem } = buildStructure(root);
+        expect(filesystem.bin.nano instanceof SymlinkRef).toBe(true);
+        expect(filesystem.bin.nano.target).toBe('/usr/lib/nano/nano.wasm');
+        expect(JSON.stringify(filesystem.bin.nano)).toBe(JSON.stringify({ $l: '/usr/lib/nano/nano.wasm' }));
+    });
+
+    it('detects UTF-8 text vs binary bytes by content and defaults unknown binary bytes to binary URI', () => {
+        writeFileSync(join(root, 'unknown_text.custom'), 'Hello UTF-8 Custom Text');
+        writeFileSync(join(root, 'unknown_binary.custom'), Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe]));
+
+        const { filesystem } = buildStructure(root);
+        expect(filesystem['unknown_text.custom']).toBe('Hello UTF-8 Custom Text');
+        expect(filesystem['unknown_binary.custom']).toMatch(/^data:application\/octet-stream;base64,/);
     });
 
     it('throws when the root directory does not exist', () => {
@@ -138,16 +160,16 @@ describe('buildStructure', () => {
         expect(permissions['/bin/tool.sh']).toBe(0o755);
     });
 
-    it('encodes .wasm files as data:application/wasm;base64 and strips .wasm extension', () => {
+    it('encodes .wasm files as data:application/wasm;base64 and preserves .wasm extension', () => {
         const sub = join(root, 'bin');
         mkdirSync(sub);
         const wasmBytes = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
         writeFileSync(join(sub, 'jq.wasm'), wasmBytes);
         chmodSync(join(sub, 'jq.wasm'), 0o755);
         const { filesystem, permissions } = buildStructure(root);
-        expect(filesystem.bin).toHaveProperty('jq');
-        expect(filesystem.bin.jq).toBe(`data:application/wasm;base64,${wasmBytes.toString('base64')}`);
-        expect(permissions['/bin/jq']).toBe(0o755);
+        expect(filesystem.bin).toHaveProperty('jq.wasm');
+        expect(filesystem.bin['jq.wasm']).toBe(`data:application/wasm;base64,${wasmBytes.toString('base64')}`);
+        expect(permissions['/bin/jq.wasm']).toBe(0o755);
     });
 });
 
@@ -393,9 +415,9 @@ describe('exportFileSystem CLI --binary (.brfs indexed binary container)', () =>
         const { filesystem, permissions } = deserializeBinaryFilesystem(raw);
         expect(filesystem['hello.txt']).toBe('Hello Binary Container');
         expect(filesystem.bin['run.sh']).toBe('#!/sh.js\necho hi');
-        expect(filesystem.bin.tool instanceof Uint8Array).toBe(true);
+        expect(filesystem.bin['tool.wasm'] instanceof Uint8Array).toBe(true);
         expect(permissions['/bin/run.sh']).toBe(0o755);
-        expect(permissions['/bin/tool']).toBe(0o755);
+        expect(permissions['/bin/tool.wasm']).toBe(0o755);
     });
 
     it('writes a JS loader and .brfs binary container when --binary (-b) is passed with -o fs.js', () => {

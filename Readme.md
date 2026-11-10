@@ -282,10 +282,23 @@ const Wbt = require('brsh/wbt');
 const shell = new Shell({ filesystem: {} });
 shell.context.setCommand(Wbt);
 
-// Optional: customize registry/sources or restore previously installed packages from a persisted FS
+// Optional: customize registry or sources
 const CustomWbt = Wbt.configure({ registry: { /* custom packages */ } });
-Wbt.restoreInstalled(shell);
 ```
+
+### Pre-Installing Packages Prior to Container Packaging (Developer Workflow)
+
+To ship pre-installed packages (such as `nano`, `doom`, `sqlite3`, or `wllama`) in your `.brfs` binary container without needing users to run `wbt` in the browser or bundling `wbt` at runtime:
+
+```shell
+# 1. Install packages into your local filesystem root
+npx wbt --root ./my-filesystem install nano doom wllama sqlite3
+
+# 2. Package into a standalone .brfs container
+exportFileSystem ./my-filesystem -o ./dist/fs.brfs
+```
+
+When booted in the browser (`new Shell({ filesystem: '/dist/fs.brfs' })`), `nano`, `doom`, `sqlite3`, and `wllama` run immediately as native commands from `/bin` without `wbt` or extra network requests.
 
 ### Loading WASM CLI Tools without `wbt` (Base Shell)
 
