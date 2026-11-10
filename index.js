@@ -4,6 +4,7 @@ const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
 const WasmCommand = require('./lib/WasmCommand');
+const JsCommand = require('./lib/JsCommand');
 const Command = require('./lib/Command');
 const InteractiveCommand = require('./lib/InteractiveCommand');
 const { TtyStream } = require('./lib/TtyStream');
@@ -1298,53 +1299,7 @@ class Shell extends EventEmitter {
         if (!this._jsCommandCache) {
             this._jsCommandCache = new Map();
         }
-        const cacheKey = scriptPath;
-        const cached = this._jsCommandCache.get(cacheKey);
-        if (cached && cached.content === content) {
-            return cached.Cmd;
-        }
-
-        if (typeof content === 'function') {
-            const Cmd = (content.prototype && typeof content.prototype.run === 'function')
-                ? content
-                : this._wrapJsModuleAsCommand(scriptPath, content);
-            this._jsCommandCache.set(cacheKey, { content, Cmd });
-            return Cmd;
-        }
-
-        let exported = null;
-        try {
-            exported = this.context.fs.loadModule(scriptPath);
-        } catch (e) {
-            throw new Error(`${scriptPath}: Failed to evaluate script: ${e.message}`);
-        }
-
-        const Cmd = (typeof exported === 'function' && exported.prototype && typeof exported.prototype.run === 'function')
-            ? exported
-            : this._wrapJsModuleAsCommand(scriptPath, exported);
-
-        this._jsCommandCache.set(cacheKey, { content, Cmd });
-        return Cmd;
-    }
-
-    _wrapJsModuleAsCommand(scriptPath, exported) {
-        const binName = scriptPath.split('/').pop().replace(/\.js$/i, '').toLowerCase();
-        const siblingWasmPath = scriptPath.replace(/\.js$/i, '.wasm');
-        const hasSiblingWasm = this.context.fs.exists(siblingWasmPath);
-        const wasmBytes = hasSiblingWasm ? this.context.fs.getFileByPath(siblingWasmPath) : null;
-
-        const pkgMeta = {
-            name: binName,
-            bin: binName,
-            wasmPath: hasSiblingWasm ? siblingWasmPath : null,
-            wasmBytes: wasmBytes || null
-        };
-
-        const config = {
-            moduleLoader: async () => exported
-        };
-
-        return WasmCommand.createGenericWasmCommand(pkgMeta, config, binName);
+        return JsCommand.load(this.context.fs, scriptPath, content, this._jsCommandCache);
     }
 
     _resolveCommandFromPath(binLocation) {
@@ -1777,6 +1732,7 @@ Shell.InteractiveCommand = InteractiveCommand;
 Shell.WasmCommand = WasmCommand;
 Shell.createWasmCommand = WasmCommand.createGenericWasmCommand || WasmCommand.createCommand;
 Shell.ReplCommand = require('./lib/ReplCommand');
+Shell.JsCommand = JsCommand;
 Shell.FS = BaseFileSystem;
 Shell.BinaryContainer = require('./lib/BinaryContainer');
 Shell.Storage = Shell.BinaryContainer.FilesystemStorage;
