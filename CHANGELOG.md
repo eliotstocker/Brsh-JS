@@ -1,3 +1,10 @@
+# [3.8.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.7.0...v3.8.0) (2026-11-10)
+
+
+### Features
+
+* **wasm:** add non-blocking read, interactive stderr tty, and poll_oneoff timer support ([#31](https://github.com/eliotstocker/Brsh-JS/issues/31)) ([6dadca6](https://github.com/eliotstocker/Brsh-JS/commit/6dadca6f7b4b50150921b7bf1050ede673f09ec4))
+
 # [3.7.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.6.2...v3.7.0) (2026-11-09)
 
 
