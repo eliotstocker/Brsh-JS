@@ -1,3 +1,10 @@
+# [3.10.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.9.0...v3.10.0) (2026-11-10)
+
+
+### Features
+
+* **wbt:** filesystem installer architecture and native exec without wbt runtime ([#35](https://github.com/eliotstocker/Brsh-JS/issues/35)) ([fd407d2](https://github.com/eliotstocker/Brsh-JS/commit/fd407d246092617f00cd929a068b0c1b9e31b746))
+
 # [3.9.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.8.1...v3.9.0) (2026-11-10)
 
 
