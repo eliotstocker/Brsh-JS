@@ -4,6 +4,7 @@ import { createShell, run } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Shell = require('../index.js');
+const FileSystem = require('../lib/FileSystem.js');
 const Command = require('../lib/Command.js');
 const WasmCommand = require('../lib/WasmCommand.js');
 
@@ -75,6 +76,25 @@ describe('Virtual /dev endpoints in filesystem', () => {
         shell.stdout.on('data', chunk => stdoutChunks.push(String(chunk)));
         await shell.onCommand('echo "direct tty message" > /dev/tty');
         expect(stdoutChunks.join('')).toContain('direct tty message');
+    });
+
+    it('is an in-memory overlay that is never persisted to raw fs or binary containers', async () => {
+        // getRaw() must not contain dev
+        expect(shell.context.fs.getRaw().dev).toBeUndefined();
+
+        // writing to /dev/null must not write anything to getRaw()
+        await run(shell, 'echo "test" > /dev/null');
+        expect(shell.context.fs.getRaw().dev).toBeUndefined();
+
+        // toBinaryContainer must not serialize /dev or device nodes
+        const container = shell.context.fs.toBinaryContainer();
+        const deserialized = FileSystem.fromBinaryContainer(container);
+        expect(deserialized.filesystem.dev).toBeUndefined();
+
+        // Booting a fresh filesystem from this container still has /dev mounted dynamically
+        const freshFs = new FileSystem('/', container);
+        expect(freshFs.exists('/dev/null')).toBe(true);
+        expect(freshFs.getRaw().dev).toBeUndefined();
     });
 });
 
