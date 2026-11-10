@@ -166,4 +166,26 @@ describe('Running .wasm files directly as CLI tools in base shell', () => {
         const res = await run(shell, 'poll');
         expect(res.exitCode).toBe(0);
     });
+
+    it('supports opening /dev/null, /dev/zero, and exporting set_terminal_size for dynamic sizing', async () => {
+        const DEV_WASM_BYTES = Buffer.from(
+            'AGFzbQEAAAABKwdgCX9/f39/fn5/fwF/YAF/AGAEf39/fwF/YAF/AX9gAn9/AGAAAX9gAAACrAEFFndhc2lfc25hcHNob3RfcHJldmlldzEJcGF0aF9vcGVuAAAWd2FzaV9zbmFwc2hvdF9wcmV2aWV3MQlwcm9jX2V4aXQAARZ3YXNpX3NuYXBzaG90X3ByZXZpZXcxCGZkX3dyaXRlAAIWd2FzaV9zbmFwc2hvdF9wcmV2aWV3MQdmZF9yZWFkAAIWd2FzaV9zbmFwc2hvdF9wcmV2aWV3MQhmZF9jbG9zZQADAwUEBAUFBgQFAXABAQEFAwEAAgYIAX8BQbCIBAsHPQUGbWVtb3J5AgARc2V0X3Rlcm1pbmFsX3NpemUABQhnZXRfY29scwAGCGdldF9yb3dzAAcGX3N0YXJ0AAgKgwQEGABBACABNgKkiICAAEEAIAA2AqCIgIAACwsAQQAoAqCIgIAACwsAQQAoAqSIgIAAC88DAQF/I4CAgIAAQfAAayIAJICAgIAAIABB6ABqQQAvAJKIgIAAOwEAIABBACkAioiAgAA3A2ACQEEDQQAgAEHgAGpBCUEAQgBCAEEAIABB7ABqEICAgIAARQ0AQQoQgYCAgAALIABBACgAm4iAgAA2AFcgAEEAKQCUiICAADcDUCAAQQo2AkwgACAAQdAAajYCSCAAQQA2AkQCQAJAIAAoAmwgAEHIAGpBASAAQcQAahCCgICAAA0AIAAoAkRBCkYNAQtBCxCBgICAAAsgAEEgNgIcIAAgAEEgajYCGCAAQeMANgIUAkACQCAAKAJsIABBGGpBASAAQRRqEIOAgIAADQAgACgCFEUNAQtBDBCBgICAAAsgACgCbBCEgICAABogAEEIakEALwCIiICAADsBACAAQQApAICIgIAANwMAAkBBA0EAIABBCUEAQgBCAEEAIABBEGoQgICAgABFDQBBDRCBgICAAAsgAEHV1AI7ASACQAJAIAAoAhAgAEEYakEBIABBFGoQg4CAgAANACAALQAgQf8BcQ0AIAAtACFB/wFxRQ0BC0EOEIGAgIAACyAAKAIQEISAgIAAGkEAEIGAgIAAIABB8ABqJICAgIAACwsmAQBBgAgLHy9kZXYvemVybwAvZGV2L251bGwAaGVsbG8gbnVsbAAArgEEbmFtZQGGAQkAEF9fd2FzaV9wYXRoX29wZW4BEF9fd2FzaV9wcm9jX2V4aXQCD19fd2FzaV9mZF93cml0ZQMOX193YXNpX2ZkX3JlYWQED19fd2FzaV9mZF9jbG9zZQURc2V0X3Rlcm1pbmFsX3NpemUGCGdldF9jb2xzBwhnZXRfcm93cwgGX3N0YXJ0BxIBAA9fX3N0YWNrX3BvaW50ZXIJCgEABy5yb2RhdGEALQlwcm9kdWNlcnMBDHByb2Nlc3NlZC1ieQEMRGViaWFuIGNsYW5nBjE0LjAuNg==',
+            'base64'
+        );
+
+        const shell = new Shell({
+            filesystem: {
+                bin: {
+                    'devtool.wasm': DEV_WASM_BYTES
+                }
+            },
+            permissions: {
+                '/bin/devtool.wasm': 0o755
+            }
+        });
+
+        const res = await run(shell, 'devtool');
+        expect(res.exitCode).toBe(0);
+    });
 });
+
