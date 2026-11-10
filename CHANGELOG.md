@@ -1,3 +1,10 @@
+## [3.8.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.8.0...v3.8.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **wasm:** prevent duplicate keystroke delivery in interactive tty mode ([#32](https://github.com/eliotstocker/Brsh-JS/issues/32)) ([7a55dbe](https://github.com/eliotstocker/Brsh-JS/commit/7a55dbe345c9bdfb1081121ddcbfa839142b3026))
+
 # [3.8.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.7.0...v3.8.0) (2026-11-10)
 
 
