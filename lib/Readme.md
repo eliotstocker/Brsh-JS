@@ -113,8 +113,30 @@ Wrap any WASI `.wasm` binary or ESM/Emscripten module into a `brsh` command:
 ```js
 const MyWasmTool = Shell.createWasmCommand({
     name: 'mytool',
-    wasmUrl: 'https://example.com/mytool.wasm'
+    wasmUrl: 'https://example.com/mytool.wasm',
+    interactive: true // Set to true for full-screen TUIs / games (enables alternate screen buffer & raw TTY input)
 });
 
 shell.context.setCommand(MyWasmTool);
 ```
+
+### Options for `Shell.createWasmCommand`
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `name` | `String` | Command name invoked in the shell |
+| `wasmUrl` | `String` | URL to fetch the `.wasm` binary from |
+| `wasmPath` | `String` | Optional path to `.wasm` binary stored in the virtual filesystem (`this.fs`) |
+| `interactive` | `Boolean` | When `true`, automatically enters the alternate screen buffer (`\x1b[?1049h`) and routes live raw keyboard events to `stdin` (`fd 0`) and `stderr` (`fd 2`) |
+| `bin` | `String` | Optional binary name override |
+| `type` | `String` | `'wasm'` / `'custom-wasm'` for raw WASI, or omit for generic ESM/Emscripten |
+
+### Compiling C / C++ Applications for `brsh`
+
+`brsh` supports WASI Preview 1 binaries with non-blocking I/O (`FDFLAGS_NONBLOCK`), cooperative sleep/timers via Asyncify (`poll_oneoff`, `clock_nanosleep`), and terminal dimension queries.
+
+* For POSIX terminal raw mode, baud rates, and `TIOCGWINSZ`, use [**`wasi-termios-brsh`**](https://github.com/eliotstocker/wasi-termios-brsh).
+* For a complete real-world reference implementation of an interactive C TUI editor with ncurses targeting `brsh`, inspect [**`nano-wasm`**](https://github.com/eliotstocker/nano-wasm).
+* For complete step-by-step instructions on compiling with `wasi-sdk`, configuring `termios`, and instrumenting with `wasm-opt --asyncify`, see [Compiling C / C++ Applications in the main Readme](../Readme.md#compiling-c--c-applications-for-brsh).
+
+

@@ -359,6 +359,134 @@ mytool
 wbt remove sqlite3
 ```
 
+## Compiling C / C++ Applications for `brsh`
+
+`brsh` includes built-in runtime support for WebAssembly binaries targeting WASI Preview 1 (`wasm32-wasip1` / `wasm32-wasi`). Any standard C or C++ codebase can be compiled with `wasi-sdk` or Clang and executed directly inside the shell with full virtual filesystem access, environment variables, standard streams, and terminal features.
+
+### Prerequisites & Toolchains
+
+* **[wasi-sdk](https://github.com/WebAssembly/wasi-sdk)** (recommended): Complete Clang/LLVM toolchain with `wasi-libc`.
+* **[Binaryen](https://github.com/WebAssembly/binaryen)** (`wasm-opt`): Required for instrumenting binaries with Asyncify for cooperative multitasking.
+* **[wasi-termios-brsh](https://github.com/eliotstocker/wasi-termios-brsh)**: Drop-in POSIX `<termios.h>` and `<sys/ioctl.h>` compatibility library for interactive terminal applications and games.
+* **[nano-wasm](https://github.com/eliotstocker/nano-wasm)**: Real-world reference repository demonstrating a complete C build setup (wasi-sdk, static ncurses 6.5, compiled-in terminfo fallbacks, and build scripts).
+
+---
+
+### 1. Compiling Standard CLI Utilities
+
+For standard command-line tools that run to completion, read arguments, process files, and produce output:
+
+```c
+// hello.c
+#include <stdio.h>
+
+int main(int argc, char **argv) {
+    const char *name = argc > 1 ? argv[1] : "world";
+    printf("Hello, %s from WASI in brsh!\n", name);
+    return 0;
+}
+```
+
+Compile with `wasi-sdk`:
+
+```bash
+$WASI_SDK_PATH/bin/clang -O3 -o hello.wasm hello.c
+```
+
+Place `hello.wasm` into `/bin` in your `brsh` virtual filesystem or register it as a command:
+```bash
+hello.wasm Alice
+# Hello, Alice from WASI in brsh!
+```
+
+---
+
+### 2. Interactive Terminal Apps & Games (`termios` & Non-blocking I/O)
+
+Many C terminal programs (such as text editors, roguelikes, games like Doom, or `ncurses` tools) rely on POSIX terminal controls:
+* Entering raw / unbuffered mode (`tcgetattr`, `tcsetattr`, disabling `ICANON` and `ECHO`)
+* Polling keyboard input without blocking (`c_cc[VMIN] = 0`, `c_cc[VTIME] = 0` or `O_NONBLOCK`)
+* Querying terminal dimensions (`ioctl(STDIN_FILENO, TIOCGWINSZ, &ws)`)
+
+Because `wasi-libc` omits `<termios.h>`, use [**`wasi-termios-brsh`**](https://github.com/eliotstocker/wasi-termios-brsh) as a drop-in header and implementation:
+
+1. Clone or add `wasi-termios-brsh` to your project:
+   ```bash
+   git clone https://github.com/eliotstocker/wasi-termios-brsh.git
+   ```
+
+2. Include the headers and source file when compiling:
+   ```bash
+   $WASI_SDK_PATH/bin/clang -O3 -std=c99 \
+     -I/path/to/wasi-termios-brsh/include \
+     app.c /path/to/wasi-termios-brsh/src/termios.c \
+     -o app.wasm
+   ```
+
+`wasi-termios-brsh` maps POSIX terminal operations directly to `brsh`'s WASI runtime:
+* Setting `VMIN = 0` and `VTIME = 0` switches the descriptor flags to `FDFLAGS_NONBLOCK` via `fcntl()` / `fd_fdstat_set_flags`. In non-blocking mode, empty reads immediately return `EAGAIN` / `EWOULDBLOCK` instead of suspending execution.
+* Calling `ioctl(..., TIOCGWINSZ, &ws)` reads `ws_col` and `ws_row` from the `$COLUMNS` and `$LINES` environment variables automatically exported by `brsh`.
+* Interactive keyboard reads can target `stdin` (`fd 0`) or `stderr` (`fd 2`).
+
+---
+
+### 3. Cooperative Multitasking with Asyncify
+
+In a browser, WebAssembly execution runs on the main JavaScript thread. If a game loop calls `nanosleep()` / `usleep()` or waits on a blocking `read()`, it would block the browser event loop, preventing DOM rendering and keyboard input dispatch.
+
+`brsh` solves this using Binaryen's **Asyncify** in `WasmCommand`. To enable non-blocking timers and cooperative yielding, post-process your `.wasm` binary with `wasm-opt`:
+
+```bash
+wasm-opt -O3 --asyncify \
+  --pass-arg=asyncify-imports@wasi_snapshot_preview1.poll_oneoff,wasi_snapshot_preview1.clock_nanosleep,wasi_snapshot_preview1.fd_read \
+  app.wasm -o app-asyncify.wasm
+```
+
+When the WASM binary calls `poll_oneoff`, `clock_nanosleep`, or a blocking `fd_read`, `brsh` saves the execution state, yields control back to the browser's event loop, and resumes execution seamlessly when the timer fires or input arrives.
+
+---
+
+### 4. Running WebAssembly Binaries in `brsh`
+
+There are three ways to execute your compiled `.wasm` binary:
+
+#### A. Place into `/bin` in the Virtual Filesystem
+Any `.wasm` binary placed in `/bin` or `/usr/bin` (via `exportFileSystem` or runtime `fs.setFileByPath`) is automatically executed as a command:
+```bash
+mytool.wasm arg1 arg2
+```
+
+#### B. Register via `Shell.createWasmCommand`
+Create an explicit command wrapper with custom metadata and interactive TTY flags:
+```js
+import Shell from 'brsh';
+
+const MyGame = Shell.createWasmCommand({
+    name: 'mygame',
+    wasmUrl: 'https://example.com/mygame.wasm',
+    interactive: true // Enters alternate screen buffer (\x1b[?1049h) & raw keyboard mode
+});
+
+shell.context.setCommand(MyGame);
+```
+
+#### C. Install via `wbt` (Web Binary Tool)
+If `wbt` is enabled in the shell:
+```bash
+wbt install mygame https://example.com/mygame.wasm
+mygame
+```
+
+---
+
+### Real-World Example: `nano-wasm`
+
+For a complete, production reference implementation of an interactive C terminal application compiled to WebAssembly for `brsh`, check out [**eliotstocker/nano-wasm**](https://github.com/eliotstocker/nano-wasm). It demonstrates:
+* Compiling a complex C codebase (`GNU nano 8.0`) targeting `wasm32-wasip1` with `wasi-sdk`.
+* Statically linking wide-character `ncurses 6.5` with built-in terminfo fallbacks (`xterm-256color`, `vt100`, etc.) without requiring external terminfo files.
+* Handling dynamic terminal window resizing (`TIOCGWINSZ`) and raw terminal input.
+* Automated build scripts downloading toolchains and generating stripped standalone `.wasm` bundles.
+
 ## Binary Filesystem Container (`.brfs`) & Client-Side Persistence
 
 While `brsh` continues to support standard JS object filesystems (and compressed `.js` + `.brfs` loader bundles), it also supports an **Indexed Binary Container (`.brfs`)** format (`BRFS` magic header + JSON metadata/permissions index + contiguous raw binary payload with zero base64 overhead) as well as **IndexedDB client-side persistence**.

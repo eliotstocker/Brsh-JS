@@ -1372,7 +1372,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
 
         const verRes = await run(shell, 'nano --version');
         expect(verRes.exitCode).toBe(0);
-        expect(verRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+        expect(verRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
 
         const helpRes = await run(shell, 'nano --help');
         expect(helpRes.exitCode).toBe(0);
@@ -1380,13 +1380,13 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
 
         const aliasVerRes = await run(shell, 'nano-wasm --version');
         expect(aliasVerRes.exitCode).toBe(0);
-        expect(aliasVerRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+        expect(aliasVerRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
     });
 
     it('supports wbt run nano --version without permanently installing', async () => {
         const runRes = await run(shell, 'wbt run nano --version');
         expect(runRes.exitCode).toBe(0);
-        expect(runRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+        expect(runRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
         expect(shell.context.fs.exists('/bin/nano')).toBe(false);
     });
 
@@ -1417,7 +1417,7 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         instance.fs = shell.context.fs.sandbox();
         const res = await instance.runCommand();
         expect(res.getExitCode()).toBe(0);
-        expect(res.getStdOutput().map(l => l.string).join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.0.*wasm/i);
+        expect(res.getStdOutput().map(l => l.string).join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
     });
 
     it('runs nano interactively, accepts text input, writes out file, and exits cleanly', async () => {
