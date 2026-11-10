@@ -1302,93 +1302,42 @@ class Shell extends EventEmitter {
         return JsCommand.load(this.context.fs, scriptPath, content, this._jsCommandCache);
     }
 
-    _resolveCommandFromPath(binLocation) {
-        let targetPath = binLocation;
-        while (this.context.fs.isSymlink(targetPath)) {
-            const link = this.context.fs.readSymlink(targetPath);
-            targetPath = link.startsWith('/')
-                ? this.context.fs.absolutePath(link)
-                : this.context.fs.absolutePath(`${targetPath.split('/').slice(0, -1).join('/')}/${link}`);
-        }
+    _findExecutablePath(basePath) {
+        if (this.context.fs.exists(basePath)) return basePath;
+        if (!basePath.endsWith('.wasm') && this.context.fs.exists(`${basePath}.wasm`)) return `${basePath}.wasm`;
+        if (!basePath.endsWith('.js') && this.context.fs.exists(`${basePath}.js`)) return `${basePath}.js`;
+        return null;
+    }
 
+    _resolveCommandFromPath(binLocation) {
+        const targetPath = this.context.fs.realpath(binLocation);
         if (!this.context.fs.isExecutable(binLocation) && !this.context.fs.isExecutable(targetPath)) {
             throw new Error(`${binLocation}: permission denied`);
         }
 
         const handle = this.context.fs.getFileByPath(targetPath);
-        const binName = binLocation.split('/').pop().replace(/\.(wasm|wat|js)$/i, '').toLowerCase();
 
-        if (typeof handle === 'function') {
-            if (handle.prototype && typeof handle.prototype.run === 'function' && typeof handle.prototype.runCommand === 'function') {
-                return handle;
-            }
-            return this._loadJsCommand(targetPath, handle);
+        if (JsCommand.isCommandClass(handle)) {
+            return handle;
         }
-
         if (typeof handle === 'string' && handle.startsWith('#!')) {
             return ScriptCommand.bind(this, handle);
         }
-
-        if (this._isWasmFile(targetPath, handle)) {
-            let pkgMeta = null;
-            try {
-                const dirParts = targetPath.split('/').filter(Boolean);
-                dirParts.pop();
-                const pkgJsonPath = '/' + dirParts.join('/') + '/package.json';
-                if (this.context.fs.exists(pkgJsonPath)) {
-                    const rawJson = this.context.fs.getFileByPath(pkgJsonPath);
-                    if (typeof rawJson === 'string') {
-                        pkgMeta = JSON.parse(rawJson);
-                    }
-                }
-            } catch (_) {}
-
-            class ExecutableWasmCommand extends WasmCommand {
-                static get name() { return binName; }
-                get name() { return binName; }
-                get requiresFilesystem() { return true; }
-                constructor(args, context) {
-                    super(targetPath, args, context);
-                    this.script = targetPath;
-                    this.arguments = args || [];
-                    this.context = context || null;
-                    if (context && context.fs && !this.fs) {
-                        this.fs = context.fs;
-                    }
-                    if (pkgMeta) {
-                        this._pkgMeta = pkgMeta;
-                    }
-                }
-            }
-            return ExecutableWasmCommand;
+        if (WasmCommand.isWasmFile(targetPath, handle)) {
+            return WasmCommand.bind(null, targetPath);
         }
-
-        if (targetPath.endsWith('.js') || (typeof handle === 'string' && (handle.includes('export') || handle.includes('module.exports')))) {
-            const Loaded = this._loadJsCommand(targetPath, handle);
-            if (Loaded && Loaded.name !== binName) {
-                class AliasedCommand extends Loaded {
-                    static get name() { return binName; }
-                    get name() { return binName; }
-                }
-                return AliasedCommand;
-            }
-            return Loaded;
+        if (JsCommand.isJsFile(targetPath, handle)) {
+            return this._loadJsCommand(targetPath, handle);
         }
 
         return null;
     }
 
     _parseCommand(command) {
-        if(command.startsWith('./') || command.startsWith('/') || command.startsWith('../') || command.includes('/')) {
-            let absPath = this.context.fs.absolutePath(command);
-            if(!this.context.fs.exists(absPath)) {
-                if (!command.endsWith('.wasm') && this.context.fs.exists(`${absPath}.wasm`)) {
-                    absPath = `${absPath}.wasm`;
-                } else if (!command.endsWith('.js') && this.context.fs.exists(`${absPath}.js`)) {
-                    absPath = `${absPath}.js`;
-                } else {
-                    throw new Error(`${command}: No such file or directory`);
-                }
+        if (command.startsWith('./') || command.startsWith('/') || command.startsWith('../') || command.includes('/')) {
+            const absPath = this._findExecutablePath(this.context.fs.absolutePath(command));
+            if (!absPath) {
+                throw new Error(`${command}: No such file or directory`);
             }
 
             const stat = this.context.fs.stat(absPath);
@@ -1404,14 +1353,11 @@ class Shell extends EventEmitter {
         }
 
         // 1. Built-in registered commands take precedence (mkdir, echo, cat, etc.)
-        let builtin = this.context.getCommand(command);
-        if (!builtin && !command.endsWith('.wasm')) {
-            builtin = this.context.getCommand(`${command}.wasm`);
-        }
-        if (!builtin && !command.endsWith('.js')) {
-            builtin = this.context.getCommand(`${command}.js`);
-        }
-        if (typeof builtin === 'function' && builtin.prototype && typeof builtin.prototype.run === 'function') {
+        const builtin = this.context.getCommand(command)
+            || (!command.endsWith('.wasm') && this.context.getCommand(`${command}.wasm`))
+            || (!command.endsWith('.js') && this.context.getCommand(`${command}.js`));
+
+        if (JsCommand.isCommandClass(builtin)) {
             return builtin;
         }
         if (typeof builtin === 'string' && builtin.startsWith('#!')) {
@@ -1421,16 +1367,8 @@ class Shell extends EventEmitter {
         // 2. Search PATH directories for installed binaries, symlinks, scripts, and wasm
         const pathDirs = (this.context.getVar('PATH') || '/bin').split(':').filter(Boolean);
         for (const dir of pathDirs) {
-            let binLocation = `${dir}/${command}`;
-            if (!this.context.fs.exists(binLocation)) {
-                if (!command.endsWith('.wasm') && this.context.fs.exists(`${binLocation}.wasm`)) {
-                    binLocation = `${binLocation}.wasm`;
-                } else if (!command.endsWith('.js') && this.context.fs.exists(`${binLocation}.js`)) {
-                    binLocation = `${binLocation}.js`;
-                }
-            }
-
-            if (this.context.fs.exists(binLocation)) {
+            const binLocation = this._findExecutablePath(`${dir}/${command}`);
+            if (binLocation) {
                 const cmd = this._resolveCommandFromPath(binLocation);
                 if (cmd) return cmd;
             }
@@ -1680,18 +1618,6 @@ class Shell extends EventEmitter {
             throw new Error('quote expression not closed');
         }
         return parts;
-    }
-
-    _isWasmFile(path, content) {
-        if (path.endsWith('.wasm') || path.endsWith('.wat')) return true;
-        if (content instanceof Uint8Array) {
-            return content.length >= 4 && content[0] === 0x00 && content[1] === 0x61 && content[2] === 0x73 && content[3] === 0x6d;
-        }
-        if (typeof content !== 'string') return false;
-        // Binary WASM: magic bytes \0asm
-        if (content.charCodeAt(0) === 0 && content.slice(1, 4) === 'asm') return true;
-        // WAT text format
-        return content.trimStart().startsWith('(module');
     }
 
     static _escapeRegExp(string) {

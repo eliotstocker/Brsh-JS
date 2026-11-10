@@ -97,4 +97,29 @@ describe('JsCommand (lib/JsCommand.js)', () => {
             JsCommand.load(fs, '/bin/broken.js');
         }).toThrow(/Failed to evaluate script/);
     });
+
+    it('detects JS files and Command classes via static helpers', () => {
+        class ValidCmd extends LocalCommand {
+            run() {}
+        }
+        function plainFn() {}
+
+        expect(JsCommand.isCommandClass(ValidCmd)).toBe(true);
+        expect(JsCommand.isCommandClass(plainFn)).toBe(false);
+        expect(JsCommand.isJsFile('/bin/foo.js', 'console.log(1)')).toBe(true);
+        expect(JsCommand.isJsFile('/bin/foo', 'module.exports = {}')).toBe(true);
+        expect(JsCommand.isJsFile('/bin/foo', plainFn)).toBe(true);
+        expect(JsCommand.isJsFile('/bin/foo', '#!/bin/sh\necho hi')).toBe(false);
+    });
+
+    it('resolves multi-hop relative and absolute symlinks via fs.realpath', () => {
+        const fs = new FileSystem('/', {
+            usr: { lib: { pkg: { 'tool.js': 'module.exports = {}' } } },
+            bin: {}
+        });
+        fs.createSymlink('/usr/lib/pkg/tool.js', '/bin/tool');
+        fs.createSymlink('tool', '/bin/tool-alias');
+
+        expect(fs.realpath('/bin/tool-alias')).toBe('/usr/lib/pkg/tool.js');
+    });
 });
