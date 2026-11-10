@@ -559,6 +559,45 @@ function createTestWbt() {
                     arrayBuffer: async () => NANO_WASM_BYTES.buffer
                 };
             }
+            if (url.includes('/bin/freedoom')) {
+                const scriptPath = path.resolve(import.meta.dirname, '../../eliotstocker/doom-wasm/bin/freedoom');
+                const scriptText = fs.existsSync(scriptPath)
+                    ? fs.readFileSync(scriptPath, 'utf8')
+                    : [
+                        '#!/bin/sh',
+                        'WAD_DIR="/usr/share/games/doom"',
+                        'WAD_NAME="freedoom1.wad"',
+                        'WAD_URL="https://raw.githubusercontent.com/redox-os/freedoom/master/freedoom1.wad"',
+                        'EXTRA_ARGS=""',
+                        'for ARG in $@',
+                        'do',
+                        '    case "$ARG" in',
+                        '        --phase2|--freedoom2|-2)',
+                        '            WAD_NAME="freedoom2.wad"',
+                        '            WAD_URL="https://raw.githubusercontent.com/redox-os/freedoom/master/freedoom2.wad"',
+                        '            ;;',
+                        '        --help|-h)',
+                        '            echo "Usage: freedoom [--phase1 | --phase2] [doom options...]"',
+                        '            return 0',
+                        '            ;;',
+                        '        *)',
+                        '            EXTRA_ARGS="$EXTRA_ARGS $ARG"',
+                        '            ;;',
+                        '    esac',
+                        'done',
+                        'WAD_FILE="$WAD_DIR/$WAD_NAME"',
+                        'if [ ! -f "$WAD_FILE" ]; then',
+                        '    mkdir -p "$WAD_DIR"',
+                        '    curl -# -L -o "$WAD_FILE" "$WAD_URL"',
+                        'fi',
+                        'doom -iwad "$WAD_FILE" -nosound $EXTRA_ARGS'
+                    ].join('\n');
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () => scriptText
+                };
+            }
             if (url === 'https://example.com/hello.wasm' || /\.wasm(\?.*)?$/i.test(url)) {
                 return {
                     ok: true,
@@ -1593,26 +1632,139 @@ describe('WBT filesystem installer architecture (installer, not runtime)', () =>
         expect(execRes.exitCode).toBe(0);
     });
 
-    it('registers doom package with aliases doom-wasm and doom-ascii in default registry', async () => {
+    it('registers doom package with aliases doom-wasm, doom-ascii, and freedoom launcher script', async () => {
         const BaseWbt = createTestWbt();
         const registry = BaseWbt.DEFAULT_REGISTRY;
         expect(registry.doom).toBeDefined();
         expect(registry.doom.bin).toBe('doom');
         expect(registry.doom.aliases).toContain('doom-wasm');
         expect(registry.doom.aliases).toContain('doom-ascii');
+        expect(registry.doom.scripts).toBeDefined();
+        expect(registry.doom.scripts.freedoom).toContain('/bin/freedoom');
         expect(registry.doom.type).toBe('custom-wasm');
 
-        // Test search
-        const searchRes = await run(shell, 'wbt search doom');
+        // Test search by script name 'freedoom'
+        const searchRes = await run(shell, 'wbt search freedoom');
         expect(searchRes.exitCode).toBe(0);
         expect(searchRes.output.join('\n')).toContain('doom/wasm');
 
         // Test show
-        const showRes = await run(shell, 'wbt show doom');
+        const showRes = await run(shell, 'wbt show freedoom');
         expect(showRes.exitCode).toBe(0);
         expect(showRes.output.join('\n')).toContain('Package: doom');
         expect(showRes.output.join('\n')).toContain('Aliases: doom-wasm, doom-ascii');
+        expect(showRes.output.join('\n')).toContain('Scripts: freedoom');
         expect(showRes.output.join('\n')).toContain('doom.wasm');
+    });
+
+    it('installs freedoom launcher script alongside doom, auto-downloads freedoom1.wad if missing, and reuses cached WAD on second run', async () => {
+        // Ephemeral wbt run freedoom --help works even before installing doom
+        const ephemeralHelp = await run(shell, 'wbt run freedoom --help');
+        expect(ephemeralHelp.exitCode).toBe(0);
+        expect(ephemeralHelp.output.join('\n')).toContain('Usage: freedoom');
+        expect(shell.context.fs.exists('/bin/freedoom')).toBe(false);
+
+        const installRes = await run(shell, 'wbt install doom');
+        expect(installRes.exitCode).toBe(0);
+
+        expect(shell.context.fs.exists('/usr/lib/doom/doom.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/usr/lib/doom/freedoom')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/doom')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/freedoom')).toBe(true);
+        expect(shell.context.fs.readSymlink('/bin/freedoom')).toBe('/usr/lib/doom/freedoom');
+
+        // Help works without fetching WAD
+        const helpRes = await run(shell, 'freedoom --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toContain('Usage: freedoom');
+        expect(shell.context.fs.exists('/usr/share/games/doom/freedoom1.wad')).toBe(false);
+
+        // Mock global fetch for curl WAD download
+        const origFetch = globalThis.fetch;
+        let wad1FetchCount = 0;
+        let wad2FetchCount = 0;
+        const fakeWadBytes = new Uint8Array([0x49, 0x57, 0x41, 0x44, 0x00, 0x00, 0x00, 0x00]); // "IWAD\0\0\0\0"
+        globalThis.fetch = async (url) => {
+            if (String(url).includes('freedoom1.wad')) {
+                wad1FetchCount++;
+                return new Response(fakeWadBytes, {
+                    status: 200,
+                    headers: { 'content-type': 'application/octet-stream', 'content-length': String(fakeWadBytes.length) }
+                });
+            }
+            if (String(url).includes('freedoom2.wad')) {
+                wad2FetchCount++;
+                return new Response(fakeWadBytes, {
+                    status: 200,
+                    headers: { 'content-type': 'application/octet-stream', 'content-length': String(fakeWadBytes.length) }
+                });
+            }
+            return origFetch(url);
+        };
+
+        try {
+            // First run: downloads freedoom1.wad to /usr/share/games/doom/freedoom1.wad and runs doom
+            const run1 = await run(shell, 'freedoom');
+            expect(run1.exitCode).toBe(0);
+            expect(wad1FetchCount).toBe(1);
+            expect(shell.context.fs.exists('/usr/share/games/doom/freedoom1.wad')).toBe(true);
+
+            // Second run: WAD already exists at /usr/share/games/doom/freedoom1.wad -> skips download!
+            const run2 = await run(shell, 'freedoom');
+            expect(run2.exitCode).toBe(0);
+            expect(wad1FetchCount).toBe(1);
+
+            // Phase 2: downloads freedoom2.wad to /usr/share/games/doom/freedoom2.wad
+            const runPhase2 = await run(shell, 'freedoom --phase2');
+            expect(runPhase2.exitCode).toBe(0);
+            expect(wad2FetchCount).toBe(1);
+            expect(shell.context.fs.exists('/usr/share/games/doom/freedoom2.wad')).toBe(true);
+        } finally {
+            globalThis.fetch = origFetch;
+        }
+
+        // Removing doom removes /bin/freedoom and /usr/lib/doom/freedoom cleanly
+        const rmRes = await run(shell, 'wbt remove doom');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/freedoom')).toBe(false);
+        expect(shell.context.fs.isSymlink('/bin/freedoom')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/doom/freedoom')).toBe(false);
+    });
+
+    it('forwards interactive TTY input and raw ANSI stdout cleanly when an interactive WASM binary is launched inside a shell script', async () => {
+        await run(shell, 'wbt install nano');
+
+        // Create a wrapper shell script similar to freedoom
+        shell.context.fs._setFileRaw('/bin/edit-note', '#!/bin/sh\nnano /home/script-note.txt\n', true);
+        shell.context.fs.setMode('/bin/edit-note', 0o755);
+
+        const rawChunks = [];
+        const onData = (chunk) => rawChunks.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
+        shell.stdout.on('data', onData);
+
+        const cmdPromise = shell.onCommand('edit-note');
+        await new Promise(r => setTimeout(r, 120));
+
+        for (const ch of 'Via wrapper!') {
+            shell.write(ch);
+            await new Promise(r => setTimeout(r, 8));
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // Save: Ctrl+O, Enter, Exit: Ctrl+X
+        shell.write('\x0f');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\r');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\x18');
+
+        await cmdPromise;
+        shell.stdout.off('data', onData);
+
+        expect(shell.lastCode).toBe(0);
+        expect(rawChunks.join('')).toContain('\x1b[?1049h');
+        const saved = shell.context.fs.getFileByPath('/home/script-note.txt');
+        expect(saved).toContain('Via wrapper!');
     });
 
     it('Wbt.restoreInstalled is a safe no-op on already-restored filesystems', async () => {
