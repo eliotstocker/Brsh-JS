@@ -55,6 +55,7 @@ When `get requiresFilesystem() { return true; }` is set on a command, `this.fs` 
 * `exists(path)` / `stat(path)` / `getSize(path)` / `absolutePath(path)`
 * `getMode(path)` / `setMode(path, mode)` / `isReadable(path)` / `isWritable(path)` / `isExecutable(path)`
 * `isSymlink(path)` / `readSymlink(path)` / `createSymlink(target, linkPath)`
+* `loadModule(path)` — evaluates a JS module from the filesystem (virtual evaluation on `FileSystem`, native `require()` on `NodeFileSystem`)
 
 ---
 

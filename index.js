@@ -1302,36 +1302,9 @@ class Shell extends EventEmitter {
             return this._wrapJsModuleAsCommand(scriptPath, content);
         }
 
-        if (this.context.fs.isRealFilesystem) {
-            const abs = this.context.fs.absolutePath(scriptPath);
-            try {
-                const mod = require(abs);
-                const Cls = mod.default || mod;
-                if (typeof Cls === 'function' && Cls.prototype && typeof Cls.prototype.run === 'function') {
-                    return Cls;
-                }
-                if (typeof Cls === 'function' || (Cls && typeof Cls === 'object')) {
-                    return this._wrapJsModuleAsCommand(scriptPath, Cls);
-                }
-            } catch (_) {}
-        }
-
-        let code = typeof content === 'string' ? content : new TextDecoder().decode(content);
-        if (/^\s*export\s+default\s+/m.test(code)) {
-            code = code.replace(/^\s*export\s+default\s+/m, 'module.exports = ');
-        }
-
         let exported = null;
         try {
-            const moduleObj = { exports: {} };
-            const Command = require('./lib/Command');
-            const LocalCommand = require('./lib/local/LocalCommand');
-            const WasmCommand = require('./lib/WasmCommand');
-            const InteractiveCommand = require('./lib/InteractiveCommand');
-            const ReplCommand = require('./lib/ReplCommand');
-            const fn = new Function('module', 'exports', 'require', 'Command', 'LocalCommand', 'WasmCommand', 'InteractiveCommand', 'ReplCommand', code);
-            fn(moduleObj, moduleObj.exports, require, Command, LocalCommand, WasmCommand, InteractiveCommand, ReplCommand);
-            exported = moduleObj.exports.default !== undefined ? moduleObj.exports.default : moduleObj.exports;
+            exported = this.context.fs.loadModule(scriptPath);
         } catch (e) {
             throw new Error(`${scriptPath}: Failed to evaluate script: ${e.message}`);
         }
