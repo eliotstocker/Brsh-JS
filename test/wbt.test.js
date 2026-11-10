@@ -1459,6 +1459,45 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(joinedOutput).toContain('\x1b[?1049h'); // entered alt screen
         expect(joinedOutput).toContain('\x1b[?1049l'); // exited alt screen
     });
+
+    it('runs nano interactively via stream write (as in Terminal emulator) and does not duplicate characters', async () => {
+        if (!NANO_WASM_BYTES) return;
+        await run(shell, 'wbt install nano');
+
+        const stdoutChunks = [];
+        const onData = (chunk) => stdoutChunks.push(chunk);
+        shell.stdout.on('data', onData);
+
+        const cmdPromise = shell.onCommand('nano /stream-test.txt');
+
+        // Allow nano to initialize, query terminal size, enter alt-screen, and render initial UI
+        await new Promise(r => setTimeout(r, 60));
+
+        // Type text into nano via stream write (simulating terminal emulator input)
+        for (const ch of 'Hello from stream!') {
+            shell.write(ch);
+            await new Promise(r => setTimeout(r, 5));
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // Save file: Ctrl+O (\x0f), then Enter (\r) to confirm filename
+        shell.write('\x0f');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\r');
+        await new Promise(r => setTimeout(r, 30));
+
+        // Exit nano: Ctrl+X (\x18)
+        shell.write('\x18');
+
+        await cmdPromise;
+        shell.stdout.off('data', onData);
+
+        const saved = shell.context.fs.getFileByPath('/stream-test.txt');
+
+        expect(shell.lastCode).toBe(0);
+        expect(saved).toContain('Hello from stream!');
+        expect(saved).not.toContain('HHeelllloo');
+    });
 });
 
 
