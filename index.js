@@ -1452,6 +1452,19 @@ class Shell extends EventEmitter {
             return cmd;
         }
 
+        // 1. Built-in registered commands take precedence (mkdir, echo, cat, etc.)
+        let builtin = this.context.getCommand(command);
+        if (!builtin && !command.endsWith('.wasm')) {
+            builtin = this.context.getCommand(`${command}.wasm`);
+        }
+        if (typeof builtin === 'function' && builtin.prototype && typeof builtin.prototype.run === 'function') {
+            return builtin;
+        }
+        if (typeof builtin === 'string' && builtin.startsWith('#!')) {
+            return ScriptCommand.bind(this, builtin);
+        }
+
+        // 2. Search PATH directories for installed binaries, symlinks, scripts, and wasm
         const pathDirs = (this.context.getVar('PATH') || '/bin').split(':').filter(Boolean);
         for (const dir of pathDirs) {
             let binLocation = `${dir}/${command}`;
@@ -1463,23 +1476,6 @@ class Shell extends EventEmitter {
                 const cmd = this._resolveCommandFromPath(binLocation);
                 if (cmd) return cmd;
             }
-        }
-
-        let fallback = this.context.getCommand(command);
-        if (!fallback && !command.endsWith('.wasm')) {
-            fallback = this.context.getCommand(`${command}.wasm`);
-        }
-
-        if(!fallback) {
-            throw new Error(`${command}: Command not found`);
-        }
-
-        if (typeof fallback === 'function') {
-            return fallback;
-        }
-
-        if (typeof fallback === 'string' && fallback.startsWith('#!')) {
-            return ScriptCommand.bind(this, fallback);
         }
 
         throw new Error(`${command}: Command not found`);
