@@ -479,13 +479,11 @@ mygame
 
 ---
 
-### Real-World Example: `nano-wasm`
+### Real-World Examples
 
-For a complete, production reference implementation of an interactive C terminal application compiled to WebAssembly for `brsh`, check out [**eliotstocker/nano-wasm**](https://github.com/eliotstocker/nano-wasm). It demonstrates:
-* Compiling a complex C codebase (`GNU nano 8.0`) targeting `wasm32-wasip1` with `wasi-sdk`.
-* Statically linking wide-character `ncurses 6.5` with built-in terminfo fallbacks (`xterm-256color`, `vt100`, etc.) without requiring external terminfo files.
-* Handling dynamic terminal window resizing (`TIOCGWINSZ`) and raw terminal input.
-* Automated build scripts downloading toolchains and generating stripped standalone `.wasm` bundles.
+* [**eliotstocker/nano-wasm**](https://github.com/eliotstocker/nano-wasm): GNU nano 8.0 text editor compiled to `wasm32-wasip1` with wide-character `ncurses 6.5` and built-in terminfo fallbacks.
+* [**eliotstocker/doom-wasm**](https://github.com/eliotstocker/doom-wasm): Classic Doom (`doom-ascii` 0.3.2) compiled to `wasm32-wasip1` with Binaryen Asyncify and `wasi-termios-brsh`, streaming 24-bit RGB ANSI frames at ~70 FPS in `brsh`.
+
 
 ## Binary Filesystem Container (`.brfs`) & Client-Side Persistence
 

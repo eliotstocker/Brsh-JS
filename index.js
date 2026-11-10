@@ -142,6 +142,13 @@ class Shell extends EventEmitter {
                 this._initializing = false;
             }
         }
+
+        if (this.context.fs && typeof this.context.fs.setTtyDevice === 'function') {
+            this.context.fs.setTtyDevice({
+                write: (chunk) => this.stdout.write(chunk),
+                read: () => ''
+            });
+        }
     }
 
     async _initAsyncFilesystem(filesystemSource, permissions, cwd) {
@@ -187,6 +194,12 @@ class Shell extends EventEmitter {
             this.context._onFsChange = savedOnChange;
             if (savedOnChange && this.context.fs) {
                 this.context.fs._onChange = () => savedOnChange(this.context.fs.getRaw(), this.context.fs.getRawPermissions());
+            }
+            if (this.context.fs && typeof this.context.fs.setTtyDevice === 'function') {
+                this.context.fs.setTtyDevice({
+                    write: (chunk) => this.stdout.write(chunk),
+                    read: () => ''
+                });
             }
         } catch (err) {
             this.emit('stdErr', err.message || String(err));
@@ -1000,6 +1013,20 @@ class Shell extends EventEmitter {
 
         if (this.runningCommand) {
             const cmd = this.runningCommand;
+            const isCtrlC = (typeof raw === 'string' && raw === '\x03')
+                || (raw instanceof Uint8Array && raw.length === 1 && raw[0] === 3)
+                || ((typeof Buffer !== 'undefined' && Buffer.isBuffer(raw)) && raw.length === 1 && raw[0] === 3);
+
+            if (isCtrlC && (!cmd.stdinStream || !cmd.stdinStream.isRaw)) {
+                if (typeof cmd.kill === 'function') {
+                    cmd.kill('SIGINT');
+                }
+                if (!cmd.interactive && !cmd._inAltScreen) {
+                    this.stdout.write('^C\r\n');
+                }
+                return;
+            }
+
             const hasStreamListeners = cmd.stdinStream && cmd.stdinStream.listenerCount('data') > 1;
             if (cmd.captureInput || cmd.interactive || cmd._inAltScreen || hasStreamListeners) {
                 cmd.stdinStream.pushData(raw);

@@ -137,6 +137,7 @@ shell.context.setCommand(MyWasmTool);
 
 * For POSIX terminal raw mode, baud rates, and `TIOCGWINSZ`, use [**`wasi-termios-brsh`**](https://github.com/eliotstocker/wasi-termios-brsh).
 * For a complete real-world reference implementation of an interactive C TUI editor with ncurses targeting `brsh`, inspect [**`nano-wasm`**](https://github.com/eliotstocker/nano-wasm).
+* For an interactive game loop with non-blocking event loops, clock sleeps, and 24-bit ANSI streaming, inspect [**`doom-wasm`**](https://github.com/eliotstocker/doom-wasm).
 * For complete step-by-step instructions on compiling with `wasi-sdk`, configuring `termios`, and instrumenting with `wasm-opt --asyncify`, see [Compiling C / C++ Applications in the main Readme](../Readme.md#compiling-c--c-applications-for-brsh).
 
 
