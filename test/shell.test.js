@@ -719,3 +719,63 @@ describe('stream redirection syntax', () => {
     });
 });
 
+describe('unquoted expansion word splitting', () => {
+    let shell;
+    let capturedArgs;
+
+    beforeEach(async () => {
+        capturedArgs = [];
+        class ArgCaptureCmd extends Shell.Command {
+            static get name() { return 'capture'; }
+            run() {
+                capturedArgs.push([...this.arguments]);
+                return Promise.resolve();
+            }
+        }
+        shell = await createShell();
+        shell.context.setCommand(ArgCaptureCmd);
+    });
+
+    it('splits unquoted variable expansions on whitespace and strips leading/trailing spaces', async () => {
+        await run(shell, 'EXTRA_ARGS=""');
+        await run(shell, 'EXTRA_ARGS="$EXTRA_ARGS -blocks"');
+        await run(shell, 'capture -iwad "/path with spaces/freedoom1.wad" -nosound $EXTRA_ARGS');
+        expect(capturedArgs).toEqual([
+            ['-iwad', '/path with spaces/freedoom1.wad', '-nosound', '-blocks']
+        ]);
+    });
+
+    it('splits multiple flags accumulated in an unquoted variable into separate argv tokens', async () => {
+        await run(shell, 'EXTRA_ARGS=" -blocks -scaling 2 "');
+        await run(shell, 'capture $EXTRA_ARGS');
+        expect(capturedArgs).toEqual([['-blocks', '-scaling', '2']]);
+    });
+
+    it('omits empty unquoted variable expansions while preserving explicit empty quotes ""', async () => {
+        await run(shell, 'EMPTY=""');
+        await run(shell, 'capture a $EMPTY "" b');
+        expect(capturedArgs).toEqual([['a', '', 'b']]);
+    });
+
+    it('preserves whitespace when variable expansion is double-quoted', async () => {
+        await run(shell, 'EXTRA_ARGS=" -blocks -scaling 2"');
+        await run(shell, 'capture "$EXTRA_ARGS"');
+        expect(capturedArgs).toEqual([[' -blocks -scaling 2']]);
+    });
+
+    it('does not word-split bare variable assignments or export assignments', async () => {
+        await run(shell, 'SRC="  hello   world  "');
+        await run(shell, 'DEST=$SRC');
+        expect(shell.context.getVar('DEST')).toBe('  hello   world  ');
+
+        await run(shell, 'export EXPORTED=$(echo alpha beta)');
+        expect(shell.context.getVar('EXPORTED')).toBe('alpha beta');
+    });
+
+    it('preserves backslash-escaped spaces on literal tokens without $ expansion', async () => {
+        await run(shell, 'capture hello\\ world');
+        expect(capturedArgs).toEqual([['hello world']]);
+    });
+});
+
+

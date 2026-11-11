@@ -561,4 +561,52 @@ describe('multiline quotes and line continuations in scripts', () => {
         expect(res.exitCode).toBe(0);
         expect(res.output).toEqual(['matched-2', 'matched-help', 'other:custom']);
     });
+
+    it('splits accumulated $EXTRA_ARGS and preserves distinct "$@" arguments in wrapper scripts', async () => {
+        const received = [];
+        class TargetApp extends Command {
+            static get name() { return 'target-app'; }
+            run() {
+                received.push([...this.arguments]);
+                return Promise.resolve();
+            }
+        }
+
+        const shell = await createShell({
+            filesystem: {
+                bin: {
+                    'launcher.sh': [
+                        '#!/bin/sh',
+                        'EXTRA_ARGS=""',
+                        'for ARG in $@',
+                        'do',
+                        '    case "$ARG" in',
+                        '        --blocks|--block|-b)',
+                        '            EXTRA_ARGS="$EXTRA_ARGS -blocks"',
+                        '            ;;',
+                        '        *)',
+                        '            EXTRA_ARGS="$EXTRA_ARGS $ARG"',
+                        '            ;;',
+                        '    esac',
+                        'done',
+                        'target-app -iwad "/game/freedoom1.wad" -nosound $EXTRA_ARGS'
+                    ].join('\n'),
+                    'passthrough.sh': '#!/bin/sh\ntarget-app "$@"\n'
+                }
+            },
+            permissions: execPerms('/bin/launcher.sh', '/bin/passthrough.sh')
+        });
+        shell.context.setCommand(TargetApp);
+
+        await run(shell, 'launcher.sh --blocks -scaling 2');
+        await run(shell, 'passthrough.sh "first with spaces" --blocks');
+        await run(shell, 'passthrough.sh');
+
+        expect(received).toEqual([
+            ['-iwad', '/game/freedoom1.wad', '-nosound', '-blocks', '-scaling', '2'],
+            ['first with spaces', '--blocks'],
+            []
+        ]);
+    });
 });
+

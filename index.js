@@ -1406,15 +1406,49 @@ class Shell extends EventEmitter {
 
     async _parseCommandLine(string) {
         const parts = Shell._splitCommand(string);
-        const replaced = await Promise.all(
-            parts.map(({ value, hasQuote }) =>
-                this._replaceVariables(value).then(v => ({ value: v, hasQuote }))
-            )
-        );
-        // Keep tokens that are non-empty OR were explicitly quoted (preserves "" → '')
-        // Preserve hasQuote so redirect detection can skip quoted tokens.
-        return replaced
-            .filter(({ value, hasQuote }) => value.length > 0 || hasQuote);
+        const firstToken = parts.length > 0 ? parts[0].value : '';
+        const isDeclCmd = firstToken === 'export' || firstToken === 'alias' || firstToken === 'local';
+
+        const expandedParts = [];
+        for (let i = 0; i < parts.length; i++) {
+            const { value: rawValue, hasQuote } = parts[i];
+
+            // POSIX "$@" expansion: expands to "$1" "$2" ... as separate quoted words
+            // (or zero words when $# is 0).
+            if (hasQuote && rawValue === '$@') {
+                const count = parseInt(this.context.getVar('#') || '0', 10) || 0;
+                for (let idx = 1; idx <= count; idx++) {
+                    expandedParts.push({
+                        value: String(this.context.getVar(String(idx))),
+                        hasQuote: true
+                    });
+                }
+                continue;
+            }
+
+            const expanded = await this._replaceVariables(rawValue);
+
+            // Variable / alias assignments (VAR=val, export VAR=val, alias foo=bar)
+            // and explicitly quoted tokens do not undergo IFS field splitting.
+            const isBareAssignment = parts.length === 1 && /^[A-Za-z_]\w*=/.test(rawValue);
+            const isDeclAssignment = i > 0 && isDeclCmd && /^[A-Za-z_]\w*=/.test(rawValue);
+
+            if (hasQuote || isBareAssignment || isDeclAssignment || !rawValue.includes('$')) {
+                if (expanded.length > 0 || hasQuote) {
+                    expandedParts.push({ value: expanded, hasQuote });
+                }
+                continue;
+            }
+
+            // Unquoted parameter / command / arithmetic expansion: perform POSIX IFS word splitting.
+            // Preserve leading redirect prefix if attached directly to an expansion (e.g. >$OUT).
+            const fields = expanded.trim().split(/\s+/).filter(Boolean);
+            for (const field of fields) {
+                expandedParts.push({ value: field, hasQuote: false });
+            }
+        }
+
+        return expandedParts;
     }
 
     static _sanitiseCommandPart(string) {
