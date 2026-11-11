@@ -281,5 +281,199 @@ describe('WASM requirements auto-discovery', () => {
         await p;
         expect(shell.lastCode).toBe(0);
     });
+
+    function buildTermiosTestWasm(initialLflag) {
+        const uleb = (n) => {
+            const out = [];
+            do {
+                let b = n & 0x7f;
+                n >>>= 7;
+                if (n) b |= 0x80;
+                out.push(b);
+            } while (n);
+            return out;
+        };
+        const sleb = (n) => {
+            const out = [];
+            let more = true;
+            while (more) {
+                let b = n & 0x7f;
+                n >>= 7;
+                if ((n === 0 && (b & 0x40) === 0) || (n === -1 && (b & 0x40) !== 0)) more = false;
+                else b |= 0x80;
+                out.push(b);
+            }
+            return out;
+        };
+        const str = (s) => {
+            const b = Buffer.from(s, 'utf8');
+            return [...uleb(b.length), ...b];
+        };
+        const sec = (id, body) => [id, ...uleb(body.length), ...body];
+        const vec = (items) => [...uleb(items.length), ...items.flat()];
+        const fnBody = (locals, instrs) => {
+            const b = [...vec(locals), ...instrs, 0x0b];
+            return [...uleb(b.length), ...b];
+        };
+
+        const types = sec(1, vec([
+            [0x60, 0, 0],
+            [0x60, 0, 1, 0x7f],
+            [0x60, 1, 0x7f, 0],
+            [0x60, 2, 0x7f, 0x7f, 0],
+            [0x60, 4, 0x7f, 0x7f, 0x7f, 0x7f, 1, 0x7f],
+        ]));
+        const imports = sec(2, vec([
+            [...str('wasi_snapshot_preview1'), ...str('clock_nanosleep'), 0x00, 4],
+            [...str('wasi_snapshot_preview1'), ...str('fd_read'), 0x00, 4],
+            [...str('wasi_snapshot_preview1'), ...str('fd_write'), 0x00, 4],
+        ]));
+        const funcs = sec(3, vec([3, 1, 2, 0, 2, 0, 1, 0]));
+        const mem = sec(5, vec([[0x00, 1]]));
+        const globals = sec(6, vec([
+            [0x7f, 1, 0x41, ...sleb(0), 0x0b],
+            [0x7f, 1, 0x41, ...sleb(initialLflag), 0x0b],
+        ]));
+        const exports = sec(7, vec([
+            [...str('memory'), 0x02, 0],
+            [...str('set_terminal_size'), 0x00, 3],
+            [...str('get_termios_lflag'), 0x00, 4],
+            [...str('asyncify_start_unwind'), 0x00, 5],
+            [...str('asyncify_stop_unwind'), 0x00, 6],
+            [...str('asyncify_start_rewind'), 0x00, 7],
+            [...str('asyncify_stop_rewind'), 0x00, 8],
+            [...str('asyncify_get_state'), 0x00, 9],
+            [...str('_start'), 0x00, 10],
+        ]));
+
+        const startInstrs = initialLflag === 1
+            ? [
+                0x41, ...sleb(256), 0x42, ...sleb(5000000000), 0x37, 3, 0,
+                0x41, 0, 0x41, 0, 0x41, ...sleb(256), 0x41, ...sleb(264), 0x10, 0, 0x1a
+            ]
+            : [
+                0x03, 0x40,
+                    0x41, ...sleb(128), 0x41, ...sleb(160), 0x36, 2, 0,
+                    0x41, ...sleb(132), 0x41, 1, 0x36, 2, 0,
+                    0x41, 0, 0x41, ...sleb(128), 0x41, 1, 0x41, ...sleb(136), 0x10, 1, 0x1a,
+                    0x23, 0, 0x41, 1, 0x46, 0x04, 0x40, 0x0f, 0x0b,
+                    0x41, ...sleb(160), 0x2d, 0, 0, 0x21, 0,
+                    0x20, 0, 0x41, 0x18, 0x46, 0x04, 0x40, 0x0f, 0x0b,
+                    0x20, 0, 0x41, ...sleb(0x73), 0x46, 0x04, 0x40, 0x41, 1, 0x24, 1, 0x0b,
+                    0x20, 0, 0x41, 3, 0x46, 0x04, 0x40,
+                        0x41, ...sleb(300), 0x41, ...sleb(0x585445), 0x36, 2, 0,
+                        0x41, ...sleb(140), 0x41, ...sleb(300), 0x36, 2, 0,
+                        0x41, ...sleb(144), 0x41, 3, 0x36, 2, 0,
+                        0x41, 1, 0x41, ...sleb(140), 0x41, 1, 0x41, ...sleb(148), 0x10, 2, 0x1a,
+                    0x0b,
+                    0x0c, 0,
+                0x0b
+            ];
+
+        const code = sec(10, vec([
+            fnBody([], []),
+            fnBody([], [0x23, 1]),
+            fnBody([], [0x41, 1, 0x24, 0]),
+            fnBody([], [0x41, 0, 0x24, 0]),
+            fnBody([], [0x41, 2, 0x24, 0]),
+            fnBody([], [0x41, 0, 0x24, 0]),
+            fnBody([], [0x23, 0]),
+            fnBody([[1, 0x7f]], startInstrs),
+        ]));
+
+        return new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, ...types, ...imports, ...funcs, ...mem, ...globals, ...exports, ...code]);
+    }
+
+    it('terminates cbreak WASM command (ISIG enabled) on Ctrl+C immediately, restores screen, and aborts parent launcher script', async () => {
+        const cbreakWasm = buildTermiosTestWasm(1);
+        const shell = await createShell({
+            filesystem: {
+                bin: {
+                    'cbreak-game': cbreakWasm,
+                    'launch-game': '#!/bin/sh\ncbreak-game\necho "AFTER_GAME" > /after.txt\n'
+                }
+            },
+            permissions: {
+                '/bin/cbreak-game': 0o755,
+                '/bin/launch-game': 0o755
+            }
+        });
+
+        // 1. Direct WASM execution: Ctrl+C via stream write (\x03) cancels 5s clock_nanosleep immediately
+        const out1 = [];
+        const onOut1 = c => out1.push(String(c));
+        shell.stdout.on('data', onOut1);
+
+        const t0 = Date.now();
+        const p1 = shell.onCommand('cbreak-game');
+        await new Promise(r => setTimeout(r, 30));
+
+        shell.write('\x03');
+        await p1;
+        const elapsed = Date.now() - t0;
+        shell.stdout.off('data', onOut1);
+
+        expect(shell.lastCode).toBe(130);
+        expect(elapsed).toBeLessThan(1000);
+        expect(out1.join('')).toContain('\x1b[?1049h');
+        expect(out1.join('')).toContain('\x1b[?1049l');
+        expect(out1.join('')).not.toContain('^C\r\n');
+
+        // 2. Via shell script wrapper (like freedoom): Ctrl+C kills child + script without running subsequent lines
+        const p2 = shell.onCommand('launch-game');
+        await new Promise(r => setTimeout(r, 40));
+
+        shell.write('\x03');
+        await p2;
+
+        expect(shell.lastCode).toBe(130);
+        expect(shell.context.fs.exists('/after.txt')).toBe(false);
+
+        // 3. Ctrl+C via shell.onInput('^C') also delivers SIGINT cleanly
+        const p3 = shell.onCommand('cbreak-game');
+        await new Promise(r => setTimeout(r, 30));
+        shell.onInput('^C');
+        await p3;
+        expect(shell.lastCode).toBe(130);
+    });
+
+    it('passes Ctrl+C (\\x03) as raw input when WASM clears ISIG (~ISIG) and honors dynamic ISIG re-enablement', async () => {
+        const rawWasm = buildTermiosTestWasm(0);
+        const shell = await createShell({
+            filesystem: {
+                bin: {
+                    'raw-editor': rawWasm
+                }
+            },
+            permissions: {
+                '/bin/raw-editor': 0o755
+            }
+        });
+
+        const chunks = [];
+        const onData = c => chunks.push(String(c));
+        shell.stdout.on('data', onData);
+
+        const p = shell.onCommand('raw-editor');
+        await new Promise(r => setTimeout(r, 30));
+
+        // While lflag == 0 (~ISIG), Ctrl+C is delivered as byte 0x03 ("ETX" written to stdout)
+        shell.write('\x03');
+        await new Promise(r => setTimeout(r, 30));
+        expect(chunks.join('')).toContain('ETX');
+        expect(shell.runningCommand).toBeDefined();
+
+        // Sending 's' toggles lflag to 1 (re-enabling ISIG dynamically at runtime)
+        shell.write('s');
+        await new Promise(r => setTimeout(r, 20));
+
+        // Subsequent Ctrl+C now terminates with SIGINT (130)
+        shell.write('\x03');
+        await p;
+        shell.stdout.off('data', onData);
+
+        expect(shell.lastCode).toBe(130);
+    });
 });
+
 

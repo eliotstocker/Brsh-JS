@@ -260,9 +260,25 @@ class Shell extends EventEmitter {
     }
 
     onInput(char) {
-        if(this.runningCommand && this.runningCommand.onInput && this.runningCommand.captureInput) {
-            this.runningCommand.onInput(char);
-            return true;
+        if (this.runningCommand) {
+            const cmd = this.runningCommand;
+            if (char === '^C' || char === '\x03') {
+                const cmdIsRaw = Boolean(cmd.isRaw || (cmd.stdinStream && cmd.stdinStream.isRaw));
+                if (!cmdIsRaw) {
+                    const wasAltOrInteractive = Boolean(cmd.interactive || cmd._inAltScreen);
+                    if (typeof cmd.kill === 'function') {
+                        cmd.kill('SIGINT');
+                    }
+                    if (!wasAltOrInteractive) {
+                        this.stdout.write('^C\r\n');
+                    }
+                    return true;
+                }
+            }
+            if (cmd.onInput && cmd.captureInput) {
+                cmd.onInput(char);
+                return true;
+            }
         }
     }
 
@@ -1046,10 +1062,11 @@ class Shell extends EventEmitter {
 
             const cmdIsRaw = Boolean(cmd.isRaw || (cmd.stdinStream && cmd.stdinStream.isRaw));
             if (isCtrlC && !cmdIsRaw) {
+                const wasAltOrInteractive = Boolean(cmd.interactive || cmd._inAltScreen);
                 if (typeof cmd.kill === 'function') {
                     cmd.kill('SIGINT');
                 }
-                if (!cmd.interactive && !cmd._inAltScreen) {
+                if (!wasAltOrInteractive) {
                     this.stdout.write('^C\r\n');
                 }
                 return;

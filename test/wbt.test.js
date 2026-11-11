@@ -1541,6 +1541,47 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(saved).toContain('Hello from stream!');
         expect(saved).not.toContain('HHeelllloo');
     });
+
+    it('delivers Ctrl+C (\\x03) as raw input to nano (~ISIG) without killing nano', async () => {
+        if (!NANO_WASM_BYTES) return;
+        const mod = new WebAssembly.Module(NANO_WASM_BYTES);
+        const exportNames = WebAssembly.Module.exports(mod).map(e => e.name);
+        expect(exportNames).toContain('get_termios_lflag');
+
+        await run(shell, 'wbt install nano');
+
+        const stdoutChunks = [];
+        const onData = (chunk) => stdoutChunks.push(String(chunk));
+        shell.stdout.on('data', onData);
+
+        const cmdPromise = shell.onCommand('nano /ctrlc-test.txt');
+        await new Promise(r => setTimeout(r, 80));
+
+        for (const ch of 'Nano raw mode') {
+            shell.write(ch);
+            await new Promise(r => setTimeout(r, 5));
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // In GNU nano, Ctrl+C (\x03) shows cursor position in the status bar instead of exiting
+        shell.write('\x03');
+        await new Promise(r => setTimeout(r, 40));
+        expect(shell.runningCommand).toBeDefined();
+        expect(stdoutChunks.join('')).toMatch(/line\s+1|col\s+14/i);
+
+        // Save (Ctrl+O, Enter) and exit (Ctrl+X) cleanly
+        shell.write('\x0f');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\r');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\x18');
+
+        await cmdPromise;
+        shell.stdout.off('data', onData);
+
+        expect(shell.lastCode).toBe(0);
+        expect(shell.context.fs.getFileByPath('/ctrlc-test.txt')).toContain('Nano raw mode');
+    });
 });
 
 describe('WBT filesystem installer architecture (installer, not runtime)', () => {
