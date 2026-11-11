@@ -7,7 +7,7 @@ const WasmCommand = require('./lib/WasmCommand');
 const JsCommand = require('./lib/JsCommand');
 const Command = require('./lib/Command');
 const InteractiveCommand = require('./lib/InteractiveCommand');
-const { TtyStream } = require('./lib/TtyStream');
+const { TtyStream, hasCustomStdinListener } = require('./lib/TtyStream');
 
 const HISTORY_FILE = '/.brsh_history';
 
@@ -45,7 +45,9 @@ class Shell extends EventEmitter {
             permissions = {},
             cwd = '/',
             onFsChange,
-            useRealFilesystem = false
+            useRealFilesystem = false,
+            cols,
+            rows
         } = options;
 
         this.context = new Context(Object.assign({}, options, {
@@ -78,15 +80,23 @@ class Shell extends EventEmitter {
         this._loadingFs = null;
         this._queuedWhileLoading = false;
 
-        this.stdinStream = new TtyStream({ columns: 80, rows: 24 });
+        const initCols = (typeof cols === 'number' && cols > 0) ? Math.floor(cols) : 80;
+        const initRows = (typeof rows === 'number' && rows > 0) ? Math.floor(rows) : 24;
+        if ((typeof cols === 'number' && cols > 0) || (typeof rows === 'number' && rows > 0)) {
+            this._terminalSize = { cols: initCols, rows: initRows };
+            this.context.setVar('COLUMNS', String(initCols));
+            this.context.setVar('LINES', String(initRows));
+        }
+
+        this.stdinStream = new TtyStream({ columns: initCols, rows: initRows });
         this.stdout = new TtyStream({
-            columns: 80,
-            rows: 24,
+            columns: initCols,
+            rows: initRows,
             onWrite: (chunk) => this.emit('data', chunk)
         });
         this.stderr = new TtyStream({
-            columns: 80,
-            rows: 24,
+            columns: initCols,
+            rows: initRows,
             onWrite: (chunk) => this.emit('data', chunk)
         });
 
@@ -702,6 +712,22 @@ class Shell extends EventEmitter {
         };
 
         this.runningCommand = instance;
+        const liveCols = (this.stdout && this.stdout.columns) || (this.stdinStream && this.stdinStream.columns);
+        const liveRows = (this.stdout && this.stdout.rows) || (this.stdinStream && this.stdinStream.rows);
+        if (liveCols && liveRows) {
+            if (instance.stdinStream) {
+                instance.stdinStream.columns = liveCols;
+                instance.stdinStream.rows = liveRows;
+            }
+            if (instance.stdout) {
+                instance.stdout.columns = liveCols;
+                instance.stdout.rows = liveRows;
+            }
+            if (instance.stderr) {
+                instance.stderr.columns = liveCols;
+                instance.stderr.rows = liveRows;
+            }
+        }
         if(this.runningCommand.on) {
             this.runningCommand.on('flush', lines => {
                 lines.forEach(routeLine);
@@ -1018,7 +1044,8 @@ class Shell extends EventEmitter {
                 || (raw instanceof Uint8Array && raw.length === 1 && raw[0] === 3)
                 || ((typeof Buffer !== 'undefined' && Buffer.isBuffer(raw)) && raw.length === 1 && raw[0] === 3);
 
-            if (isCtrlC && (!cmd.stdinStream || !cmd.stdinStream.isRaw)) {
+            const cmdIsRaw = Boolean(cmd.isRaw || (cmd.stdinStream && cmd.stdinStream.isRaw));
+            if (isCtrlC && !cmdIsRaw) {
                 if (typeof cmd.kill === 'function') {
                     cmd.kill('SIGINT');
                 }
@@ -1028,7 +1055,7 @@ class Shell extends EventEmitter {
                 return;
             }
 
-            const hasStreamListeners = cmd.stdinStream && cmd.stdinStream.listenerCount('data') > 1;
+            const hasStreamListeners = hasCustomStdinListener(cmd);
             if (cmd.captureInput || cmd.interactive || cmd._inAltScreen || hasStreamListeners) {
                 cmd.stdinStream.pushData(raw);
                 return;

@@ -1140,5 +1140,153 @@ describe('Output Typing Animation Suppression', () => {
 
             term.destroy();
         });
+
+        it('measures initial dimensions before attaching cli and subtracts CSS padding', () => {
+            const el = document.createElement('div');
+            el.clientWidth = 1020;
+            el.clientHeight = 520;
+            globalThis.window.getComputedStyle = () => ({
+                paddingLeft: '10px',
+                paddingRight: '10px',
+                paddingTop: '14px',
+                paddingBottom: '14px'
+            });
+            const origCreate = globalThis.document.createElement;
+            globalThis.document.createElement = (tag) => {
+                const node = origCreate(tag);
+                if (tag === 'span') {
+                    node.getBoundingClientRect = () => ({ left: 0, top: 0, width: 8, height: 18 });
+                }
+                return node;
+            };
+
+            try {
+                const sizedShell = new Shell({ cwd: '/root' });
+                const term = new Terminal({
+                    el,
+                    cli: sizedShell
+                });
+
+                // (1020 - 20) / 8 = 125 cols; (520 - 28) / 18 = 27 rows
+                expect(term.cols).toBe(125);
+                expect(term.rows).toBe(27);
+                expect(sizedShell.stdout.columns).toBe(125);
+                expect(sizedShell.stdout.rows).toBe(27);
+                expect(sizedShell.context.getVar('COLUMNS')).toBe('125');
+                expect(sizedShell.context.getVar('LINES')).toBe('27');
+
+                term.destroy();
+            } finally {
+                globalThis.document.createElement = origCreate;
+                delete globalThis.window.getComputedStyle;
+            }
+        });
+
+        it('does not double-emit Enter when mobile input keydown bubbles to window', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                mobileInput: 'click'
+            });
+
+            const received = [];
+            term.onData((d) => received.push(d));
+
+            const enterEvent = {
+                key: 'Enter',
+                defaultPrevented: false,
+                preventDefault() { this.defaultPrevented = true; }
+            };
+            // Dispatch on hidden <input>, then simulate DOM bubbling to window
+            term._mobileInputElement.dispatchEvent('keydown', enterEvent);
+            globalThis.window.dispatchEvent('keydown', enterEvent);
+
+            // IME composing events on window should also be ignored
+            globalThis.window.dispatchEvent('keydown', { key: 'a', isComposing: true });
+            globalThis.window.dispatchEvent('keydown', { key: 'a', keyCode: 229 });
+
+            expect(received).toEqual(['\r']);
+            term.destroy();
+        });
+
+        it('supports legacy/alias key names and ignores bare lock/unidentified keys', () => {
+            const el = document.createElement('div');
+            const term = new Terminal({
+                el,
+                Shell: false,
+                cols: 80,
+                rows: 24
+            });
+
+            const received = [];
+            term.onData((d) => received.push(d));
+
+            term.sendKey('Space');
+            term.sendKey('Spacebar');
+            term.sendKey('Return');
+            term.sendKey('Esc');
+            term.sendKey('Up');
+            term.sendKey('Down');
+            term.sendKey('Right');
+            term.sendKey('Left');
+            term.sendKey('Del');
+            term.sendKey('F1');
+            term.sendKey('F12');
+            term.sendKey('NumLock');
+            term.sendKey('ScrollLock');
+            term.sendKey('CapsLock');
+            term.sendKey('Dead');
+            term.sendKey('Unidentified');
+
+            expect(received).toEqual([
+                ' ', ' ', '\r', '\x1b',
+                '\x1b[A', '\x1b[B', '\x1b[C', '\x1b[D',
+                '\x1b[3~', '\x1bOP', '\x1b[24~'
+            ]);
+            term.destroy();
+        });
+
+        it('passes Ctrl+C (^C) to raw ReplCommand to clear current input instead of killing REPL', async () => {
+            class LineClearRepl extends Shell.ReplCommand {
+                static get name() { return 'clearrepl'; }
+                shouldBeInteractive() { return true; }
+                getReplTitle() { return 'LineClear REPL'; }
+                getReplPrompt() { return 'lc> '; }
+                async evaluateReplLine(line) {
+                    return { output: [`ok:${line}`] };
+                }
+            }
+
+            const replShell = new Shell({ filesystem: { root: {} }, cwd: '/root', hostname: 'brsh' });
+            const ready = waitForReady(replShell);
+            const term = new Terminal({
+                el: document.createElement('div'),
+                cli: replShell,
+                cols: 60,
+                rows: 15
+            });
+            await ready;
+
+            replShell.context.setCommand(LineClearRepl);
+            const replDone = waitForReady(replShell);
+            replShell.onCommand('clearrepl');
+            await new Promise(r => setTimeout(r, 30));
+
+            for (const ch of 'draft') term.sendKey(ch);
+            // Send Ctrl+C while input is non-empty -> clears input line, keeps REPL alive in alt screen
+            term.sendKey('c', { ctrl: true });
+            await new Promise(r => setTimeout(r, 20));
+
+            expect(term.screen.isAltScreen).toBe(true);
+            expect(term.getScreenText()).toContain('lc> draft^C');
+
+            // Exit cleanly with Ctrl+D
+            term.sendKey('d', { ctrl: true });
+            await replDone;
+            expect(replShell.lastCode).toBe(0);
+            term.destroy();
+        });
     });
 });
+

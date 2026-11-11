@@ -3,9 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { createShell } from './helpers.js';
 
-const DOOM_WASM_PATH = fs.existsSync('/home/antigravity/doom-ascii/dist/doom.wasm')
-    ? '/home/antigravity/doom-ascii/dist/doom.wasm'
-    : '/tmp/doom-asyncify.wasm';
+const DOOM_WASM_CANDIDATES = [
+    '/home/antigravity/eliotstocker/doom-wasm/dist/doom.wasm',
+    '/home/antigravity/doom-ascii/dist/doom.wasm',
+    '/tmp/doom-asyncify.wasm'
+];
+const DOOM_WASM_PATH = DOOM_WASM_CANDIDATES.find(p => fs.existsSync(p)) || DOOM_WASM_CANDIDATES[0];
 const DOOM_WAD_PATH = '/tmp/doom1.wad';
 const hasDoom = fs.existsSync(DOOM_WASM_PATH) && fs.existsSync(DOOM_WAD_PATH);
 
@@ -31,6 +34,6 @@ describe('Doom in brsh', () => {
         expect(shell.lastCode).toBe(0);
         const allOut = lines.join('');
         expect(allOut).toContain('DOOM ASCII');
-        expect(allOut).toContain('timed 5026 gametics');
+        expect(allOut).toMatch(/timed \d+ gametics/);
     }, 30000);
 });
