@@ -1,3 +1,10 @@
+## [3.10.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.0...v3.10.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* improve terminal sizing precedence, live resize signals, and raw input forwarding ([#36](https://github.com/eliotstocker/Brsh-JS/issues/36)) ([971428d](https://github.com/eliotstocker/Brsh-JS/commit/971428d74380136a8d536fe1868b3145c586c4d1))
+
 # [3.10.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.9.0...v3.10.0) (2026-11-10)
 
 
