@@ -1,3 +1,10 @@
+## [3.10.3](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.2...v3.10.3) (2026-11-11)
+
+
+### Bug Fixes
+
+* **wasm:** honor termios ISIG flag so Ctrl+C sends SIGINT in cbreak WASM apps ([1399c52](https://github.com/eliotstocker/Brsh-JS/commit/1399c5261a2bcc092aed43a32ffa76c8a7bb9fed))
+
 ## [3.10.2](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.1...v3.10.2) (2026-11-11)
 
 
