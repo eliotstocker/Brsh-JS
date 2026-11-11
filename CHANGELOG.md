@@ -1,3 +1,10 @@
+## [3.10.2](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.1...v3.10.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **shell:** perform POSIX word splitting on unquoted expansions and preserve "$@" args ([a0a53f3](https://github.com/eliotstocker/Brsh-JS/commit/a0a53f3f2f31179a63059860a54f18a3c905755b))
+
 ## [3.10.1](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.0...v3.10.1) (2026-11-11)
 
 
