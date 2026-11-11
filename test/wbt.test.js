@@ -1842,4 +1842,72 @@ describe('WBT filesystem installer architecture (installer, not runtime)', () =>
         expect(saved).toContain('Single echo!');
         expect(saved).not.toContain('SSiinnggllee');
     });
+
+    it('extends standard Command rather than LocalCommand for both Wbt and GenericWasmCommand', () => {
+        const Command = require('../lib/Command.js');
+        const LocalCommand = require('../lib/local/LocalCommand.js');
+        const GenericCmd = Wbt.createGenericWasmCommand({ name: 'demo-tool' });
+
+        expect(Wbt.prototype instanceof Command).toBe(true);
+        expect(Wbt.prototype instanceof LocalCommand).toBe(false);
+        expect(GenericCmd.prototype instanceof Command).toBe(true);
+        expect(GenericCmd.prototype instanceof LocalCommand).toBe(false);
+    });
+
+    it('works across separate built ESM bundles (dist/shell.es.js + dist/wbt.es.js) and runs installed binaries without wbt at runtime', async () => {
+        const distShellPath = path.resolve(import.meta.dirname, '../dist/shell.es.js');
+        const distWbtPath = path.resolve(import.meta.dirname, '../dist/wbt.es.js');
+        if (!fs.existsSync(distShellPath) || !fs.existsSync(distWbtPath)) return;
+
+        const ShellMod = await import(distShellPath);
+        const WbtMod = await import(distWbtPath);
+        const BundledShell = ShellMod.default?.default ?? ShellMod.default ?? ShellMod;
+        const BundledWbt = WbtMod.default?.default ?? WbtMod.default ?? WbtMod;
+
+        const ConfiguredBundledWbt = BundledWbt.configure({
+            fetch: async (url) => {
+                if (url.endsWith('freedoom')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        text: async () => '#!/bin/sh\necho "freedoom-bundle-ok:$1"\n'
+                    };
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () => MINIMAL_WASM_BYTES.buffer.slice(0)
+                };
+            }
+        });
+
+        const s1 = new BundledShell({ filesystem: {}, interactive: false });
+        s1.context.setCommand(ConfiguredBundledWbt);
+
+        const listRes = await run(s1, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(listRes.output.join('\n')).toContain('doom/wasm');
+
+        // Ephemeral script execution via `wbt run` with readonlyContext across bundles
+        const runRes = await run(s1, 'wbt run freedoom hello');
+        expect(runRes.exitCode).toBe(0);
+        expect(runRes.output.join('\n')).toContain('freedoom-bundle-ok:hello');
+
+        // Install into filesystem via `wbt install`, serialize to .brfs, and boot a fresh Shell WITHOUT Wbt
+        const installRes = await run(s1, 'wbt install doom');
+        expect(installRes.exitCode).toBe(0);
+
+        const containerBytes = s1.context.fs.toBinaryContainer();
+        const s2 = await BundledShell.fromContainer(containerBytes, { interactive: false });
+        // Ensure Wbt is NOT registered in s2
+        expect(s2.context.getCommand('wbt')).toBeNull();
+
+        const nativeRes = await run(s2, 'freedoom from-container');
+        expect(nativeRes.exitCode).toBe(0);
+        expect(nativeRes.output.join('\n')).toContain('freedoom-bundle-ok:from-container');
+
+        const wasmRes = await run(s2, 'doom');
+        expect(wasmRes.exitCode).toBe(0);
+    });
 });
+
