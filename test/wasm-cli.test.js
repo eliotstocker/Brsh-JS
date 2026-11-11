@@ -187,5 +187,81 @@ describe('Running .wasm files directly as CLI tools in base shell', () => {
         const res = await run(shell, 'devtool');
         expect(res.exitCode).toBe(0);
     });
+
+    it('passes live stdout COLUMNS and LINES to WASI environ_get over stale context vars', async () => {
+        // WASI binary that reads environ_sizes_get + environ_get and writes the environment block to stdout
+        const ENV_DUMP_WASM_BYTES = Buffer.from(
+            'AGFzbQEAAAABEgNgAn9/AX9gBH9/f38Bf2AAAAJzAxZ3YXNpX3NuYXBzaG90X3ByZXZpZXcxEWVudmlyb25fc2l6ZXNfZ2V0AAAWd2FzaV9zbmFwc2hvdF9wcmV2aWV3MQtlbnZpcm9uX2dldAAAFndhc2lfc25hcHNob3RfcHJldmlldzEIZmRfd3JpdGUAAQMCAQIFAwEAAQcTAgZtZW1vcnkCAAZfc3RhcnQAAwowAS4AQQBBBBAAGkEQQYAEEAEaQQhBgAQ2AgBBDEEEKAIANgIAQQFBCEEBQQAQAhoL',
+            'base64'
+        );
+
+        const shell = new Shell({
+            filesystem: {
+                bin: { 'envdump.wasm': ENV_DUMP_WASM_BYTES }
+            },
+            permissions: {
+                '/bin/envdump.wasm': 0o755
+            }
+        });
+
+        // Simulate stale 80x24 context vars while live stream dimensions are 132x42
+        shell.context.setVar('COLUMNS', '80');
+        shell.context.setVar('LINES', '24');
+        shell.stdout.columns = 132;
+        shell.stdout.rows = 42;
+        shell.stdin.columns = 132;
+        shell.stdin.rows = 42;
+
+        const res = await run(shell, 'envdump');
+        expect(res.exitCode).toBe(0);
+        const rawEnv = res.output.join('\n').replace(/\0/g, '\n');
+        expect(rawEnv).toContain('COLUMNS=132');
+        expect(rawEnv).toContain('LINES=42');
+        expect(rawEnv).not.toContain('COLUMNS=80');
+        expect(rawEnv).not.toContain('LINES=24');
+    });
+
+    it('delivers stdin via hasCustomStdinListener and distinguishes poll_oneoff timeout from FD_READ', async () => {
+        // Asyncify WASI binary polling FD_READ (type=1) + CLOCK 35ms (type=0) and printing "<nevents>:<event0.type>\n"
+        const ASYNC_POLL_WASM_BYTES = Buffer.from(
+            'AGFzbQEAAAABFARgBH9/f38Bf2ABfwBgAABgAAF/AkgCFndhc2lfc25hcHNob3RfcHJldmlldzELcG9sbF9vbmVvZmYAABZ3YXNpX3NuYXBzaG90X3ByZXZpZXcxCGZkX3dyaXRlAAADBwYBAgECAwIFAwEAAgYGAX8BQQALB4YBBwZtZW1vcnkCABVhc3luY2lmeV9zdGFydF91bndpbmQAAhRhc3luY2lmeV9zdG9wX3Vud2luZAADFWFzeW5jaWZ5X3N0YXJ0X3Jld2luZAAEFGFzeW5jaWZ5X3N0b3BfcmV3aW5kAAUSYXN5bmNpZnlfZ2V0X3N0YXRlAAYGX3N0YXJ0AAcK1AEGBgBBASQACwYAQQAkAAsGAEECJAALBgBBACQACwQAIwALsAEAQcAAQgs3AwBByABBAToAAEHQAEEANgIAQfAAQhY3AwBB+ABBADoAAEGAAUEBNgIAQYgBQsCd2BA3AwBBmAFBADsBAEHKAUEJOgAAQcAAQcABQQJBmAIQABojAEEBRgRADwtBrAJBMEGYAigCAGo6AABBrQJBOjoAAEGuAkEwQcoBLQAAajoAAEGvAkEKOgAAQcACQawCNgIAQcQCQQQ2AgBBAUHAAkEBQcgCEAEaCw==',
+            'base64'
+        );
+
+        const shell = new Shell({
+            filesystem: {
+                bin: { 'asyncpoll.wasm': ASYNC_POLL_WASM_BYTES }
+            },
+            permissions: {
+                '/bin/asyncpoll.wasm': 0o755
+            }
+        });
+
+        // 1. No input sent -> clock timeout fires ONLY clock event ("1:0"), NOT false FD_READ
+        const rawOut1 = [];
+        const onRaw1 = (chunk) => rawOut1.push(String(chunk));
+        shell.stdout.on('data', onRaw1);
+        const timeoutRes = await run(shell, 'asyncpoll');
+        shell.stdout.off('data', onRaw1);
+        expect(timeoutRes.exitCode).toBe(0);
+        const text1 = rawOut1.join('') + timeoutRes.output.join('');
+        expect(text1).toContain('1:0');
+        expect(text1).not.toContain('1:1');
+
+        // 2. Input written while WASM is polling -> delivered via hasCustomStdinListener, wakes FD_READ ("1:1")
+        const rawOut2 = [];
+        const onRaw2 = (chunk) => rawOut2.push(String(chunk));
+        shell.stdout.on('data', onRaw2);
+        const cmdPromise = shell.onCommand('asyncpoll');
+        await new Promise(r => setTimeout(r, 10));
+        shell.write('k');
+        await cmdPromise;
+        shell.stdout.off('data', onRaw2);
+        expect(shell.lastCode).toBe(0);
+        const text2 = rawOut2.join('');
+        expect(text2).toContain('1:1');
+        expect(text2).not.toContain('1:0');
+    });
 });
+
 

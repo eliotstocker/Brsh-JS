@@ -1796,8 +1796,50 @@ describe('WBT filesystem installer architecture (installer, not runtime)', () =>
         const tmpKeys = Object.keys(tmpDir);
         expect(tmpKeys.some(k => k.startsWith('.wbt-run-'))).toBe(false);
     });
+
+    it('persists interactive: true in /usr/lib/<pkg>/package.json so standalone WasmCommand detects interactivity immediately', async () => {
+        await run(shell, 'wbt install nano');
+        await run(shell, 'wbt install doom');
+
+        const nanoPkgJson = JSON.parse(shell.context.fs.getFileByPath('/usr/lib/nano/package.json'));
+        const doomPkgJson = JSON.parse(shell.context.fs.getFileByPath('/usr/lib/doom/package.json'));
+        expect(nanoPkgJson.interactive).toBe(true);
+        expect(doomPkgJson.interactive).toBe(true);
+
+        const WasmCommand = shell.constructor.WasmCommand;
+        const doomCmd = new WasmCommand('/usr/lib/doom/doom.wasm', [], shell.context);
+        expect(doomCmd.interactive).toBe(true);
+        expect(doomCmd.captureInput).toBe(true);
+    });
+
+    it('does not duplicate stdin keystrokes and forwards live stdout resizes during wbt run', async () => {
+        if (!NANO_WASM_BYTES) return;
+        shell.setTerminalSize(110, 36);
+
+        const cmdPromise = shell.onCommand('wbt run nano /wbt-run-note.txt');
+        await new Promise(r => setTimeout(r, 80));
+
+        // Resize terminal mid-run -> forwarded to ephemeral wbt run subcommand without error
+        shell.setTerminalSize(124, 40);
+        await new Promise(r => setTimeout(r, 20));
+
+        for (const ch of 'Single echo!') {
+            shell.write(ch);
+            await new Promise(r => setTimeout(r, 6));
+        }
+        await new Promise(r => setTimeout(r, 30));
+
+        // Save: Ctrl+O, Enter, Exit: Ctrl+X
+        shell.write('\x0f');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\r');
+        await new Promise(r => setTimeout(r, 30));
+        shell.write('\x18');
+
+        await cmdPromise;
+        expect(shell.lastCode).toBe(0);
+        const saved = shell.context.fs.getFileByPath('/wbt-run-note.txt');
+        expect(saved).toContain('Single echo!');
+        expect(saved).not.toContain('SSiinnggllee');
+    });
 });
-
-
-
-
