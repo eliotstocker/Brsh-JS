@@ -1657,15 +1657,32 @@ describe('WBT Vim WASM package (vim / vi / vim-wasm)', () => {
         expect(shell.context.fs.exists('/bin/vim')).toBe(false);
     });
 
-    it('sets interactive flag properly for vim modes vs --version/--help', async () => {
+    it('computes interactivity dynamically at runtime for vim modes vs --version/--help', async () => {
+        if (!VIM_WASM_BYTES) return;
         await run(shell, 'wbt install vim');
-        const VimCmd = shell.context.fs.getFileByPath('/bin/vim');
-        expect(VimCmd).toBeDefined();
 
-        expect(new VimCmd(['/test.txt'], shell.context).interactive).toBe(true);
-        expect(new VimCmd(['-v', '/test.txt'], shell.context).interactive).toBe(true);
-        expect(new VimCmd(['--version'], shell.context).interactive).toBe(false);
-        expect(new VimCmd(['--help'], shell.context).interactive).toBe(false);
+        let interactiveCount = 0;
+        const onInteractive = () => { interactiveCount++; };
+        shell.on('interactive', onInteractive);
+
+        const verRes = await run(shell, 'vim --version');
+        expect(verRes.exitCode).toBe(0);
+        expect(interactiveCount).toBe(0);
+
+        const helpRes = await run(shell, 'vim --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(interactiveCount).toBe(0);
+
+        const viModePromise = shell.onCommand('vim -v /test.txt');
+        await new Promise(r => setTimeout(r, 80));
+        expect(interactiveCount).toBe(1);
+        for (const k of [':', 'q', '!', 'Enter']) {
+            shell.onInput(k);
+            await new Promise(r => setTimeout(r, 10));
+        }
+        await viModePromise;
+        shell.removeListener('interactive', onInteractive);
+        expect(shell.lastCode).toBe(0);
     });
 
     it('removes vim and unregisters vim, vi, and vim-wasm from /bin', async () => {

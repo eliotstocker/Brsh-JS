@@ -689,6 +689,12 @@ class Shell extends EventEmitter {
 
         this.runningCommand = instance;
         if(this.runningCommand.on) {
+            this.runningCommand.on('interactive', () => {
+                if (!this._emittedInteractiveForCmd) {
+                    this._emittedInteractiveForCmd = true;
+                    this.emit('interactive');
+                }
+            });
             this.runningCommand.on('flush', lines => {
                 lines.forEach(routeLine);
             });
@@ -728,6 +734,7 @@ class Shell extends EventEmitter {
                 }
             });
         }
+        this._emittedInteractiveForCmd = Boolean(instance.interactive);
         if (instance.interactive) {
             this.emit('interactive');
         }
