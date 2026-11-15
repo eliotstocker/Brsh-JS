@@ -3,7 +3,11 @@ name: Busybox Compatibility
 on:
   push:
     branches: [master, main]
+    paths-ignore:
+      - 'lib/wbt/registry.json'
   pull_request:
+    paths-ignore:
+      - 'lib/wbt/registry.json'
 
 jobs:
   busybox-compat:
