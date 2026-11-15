@@ -84,6 +84,21 @@ describe('FileSystem binary conversion', () => {
         expect(fs.getSize('/img')).toBe(bytes.length);
     });
 
+    it('getSize() on directories with large BinaryFile entries runs in O(1) without JSON serialization', () => {
+        const bigSize = 5 * 1024 * 1024;
+        const bigBinary = new BinaryFile(new ArrayBuffer(bigSize), 'application/wasm');
+        const fs = new FileSystem('/', { 'big.wasm': bigBinary, other: 'abc' });
+
+        const start = performance.now();
+        const dirSize = fs.getSize('/');
+        const elapsedMs = performance.now() - start;
+
+        expect(typeof dirSize).toBe('number');
+        expect(dirSize).toBeGreaterThan(0);
+        expect(elapsedMs).toBeLessThan(50);
+        expect(fs.getSize('/big.wasm')).toBe(bigSize);
+    });
+
     it('BinaryFile toString() is backward-compatible via cat', async () => {
         const shell = await createShell({ filesystem: { img: RED_PNG_DATA_URI } });
         const { output } = await run(shell, 'cat /img');

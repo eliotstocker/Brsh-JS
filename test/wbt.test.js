@@ -22,6 +22,16 @@ const NANO_WASM_BYTES = (() => {
     return null;
 })();
 
+const VIM_WASM_PATH = path.resolve(import.meta.dirname, '../../vim-wasm/dist/vim.wasm');
+const VIM_WASM_BYTES = (() => {
+    try {
+        if (fs.existsSync(VIM_WASM_PATH)) {
+            return new Uint8Array(fs.readFileSync(VIM_WASM_PATH));
+        }
+    } catch { /* ignore */ }
+    return null;
+})();
+
 // Minimal valid WASM binary that exits cleanly with 0 via _start:
 // (module (func (export "_start")))
 const MINIMAL_WASM_BYTES = new Uint8Array([
@@ -557,6 +567,13 @@ function createTestWbt() {
                     ok: true,
                     status: 200,
                     arrayBuffer: async () => NANO_WASM_BYTES.buffer
+                };
+            }
+            if ((url.includes('vim-wasm') || url.includes('vim.wasm')) && VIM_WASM_BYTES) {
+                return {
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () => VIM_WASM_BYTES.buffer
                 };
             }
             if (url === 'https://example.com/hello.wasm' || /\.wasm(\?.*)?$/i.test(url)) {
@@ -1458,6 +1475,250 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(saved).toContain('Hello from nano!');
         expect(joinedOutput).toContain('\x1b[?1049h'); // entered alt screen
         expect(joinedOutput).toContain('\x1b[?1049l'); // exited alt screen
+    });
+});
+
+describe('WBT APT-style JSON registry caching & wbt update', () => {
+    it('fetches registry JSON once when cache is empty, uses cache on subsequent calls, and refreshes on wbt update', async () => {
+        let fetchCount = 0;
+        let remoteRegistry = {
+            sqlite3: Wbt.DEFAULT_REGISTRY.sqlite3,
+            remotepkg: {
+                name: 'remotepkg',
+                bin: 'rpkg',
+                aliases: ['rp-alias'],
+                version: '1.0.0',
+                description: 'Initial remote package',
+                cdnUrl: 'https://esm.sh/remotepkg@1.0.0',
+                type: 'builtin-adapter',
+                adapter: 'quickjs'
+            }
+        };
+
+        const CachingWbt = Wbt.configure({
+            registryUrl: 'https://example.com/base-registry.json',
+            sources: [],
+            moduleLoader: async (pkgName) => {
+                if (pkgName === 'quickjs-emscripten' || pkgName === 'quickjs') return createMockQuickJs();
+                return null;
+            },
+            fetch: async (url) => {
+                if (url === 'https://example.com/base-registry.json') {
+                    fetchCount++;
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => remoteRegistry
+                    };
+                }
+                return { ok: false, status: 404 };
+            }
+        });
+
+        const shell = await createShell({ filesystem: { home: {} } });
+        shell.context.setCommand(CachingWbt);
+
+        expect(shell.context.fs.exists('/var/cache/wbt/registry.json')).toBe(false);
+
+        // Cold cache: `wbt list` pulls from JSON and persists /var/cache/wbt/registry.json
+        const listRes = await run(shell, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(fetchCount).toBe(1);
+        expect(shell.context.fs.exists('/var/cache/wbt/registry.json')).toBe(true);
+        expect(listRes.output.join('\n')).toContain('remotepkg/wasm 1.0.0');
+
+        // Mutate upstream JSON — warm cache must NOT refetch on list/search/show/install
+        remoteRegistry = {
+            sqlite3: Wbt.DEFAULT_REGISTRY.sqlite3,
+            remotepkg: {
+                ...remoteRegistry.remotepkg,
+                version: '2.0.0',
+                description: 'Updated remote package'
+            },
+            brandnew: {
+                name: 'brandnew',
+                bin: 'bnew',
+                aliases: ['bn'],
+                version: '3.0.0',
+                description: 'Brand new package after update',
+                cdnUrl: 'https://esm.sh/brandnew@3.0.0',
+                type: 'generic-runtime'
+            }
+        };
+
+        const searchRes = await run(shell, 'wbt search Initial');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('remotepkg/wasm 1.0.0');
+
+        // Remote-only alias resolves from cached registry JSON without hardcoded aliases
+        const showAliasRes = await run(shell, 'wbt show rp-alias');
+        expect(showAliasRes.exitCode).toBe(0);
+        expect(showAliasRes.output.join('\n')).toContain('Version: 1.0.0');
+
+        const showMissingBeforeUpdate = await run(shell, 'wbt show brandnew');
+        expect(showMissingBeforeUpdate.exitCode).toBe(100);
+        expect(fetchCount).toBe(1);
+
+        // `wbt update` refreshes /var/cache/wbt/registry.json from upstream JSON
+        const updateRes = await run(shell, 'wbt update');
+        expect(updateRes.exitCode).toBe(0);
+        expect(fetchCount).toBe(2);
+        expect(updateRes.output.join('\n')).toContain('Get:1 https://example.com/base-registry.json Packages');
+        expect(updateRes.output.join('\n')).toContain('Reading package lists... Done');
+
+        const showUpdated = await run(shell, 'wbt show remotepkg');
+        expect(showUpdated.exitCode).toBe(0);
+        expect(showUpdated.output.join('\n')).toContain('Version: 2.0.0');
+        expect(showUpdated.output.join('\n')).toContain('Updated remote package');
+
+        const showNewAlias = await run(shell, 'wbt show bn');
+        expect(showNewAlias.exitCode).toBe(0);
+        expect(showNewAlias.output.join('\n')).toContain('Package: brandnew');
+
+        // Subsequent install uses updated cache without extra registry fetches
+        const installRes = await run(shell, 'wbt install rp-alias');
+        expect(installRes.exitCode).toBe(0);
+        expect(fetchCount).toBe(2);
+        expect(shell.context.fs.exists('/bin/rpkg')).toBe(true);
+    });
+
+    it('falls back cleanly to bundled lib/wbt/registry.json when remote JSON returns 404 or network error', async () => {
+        const OfflineWbt = Wbt.configure({
+            registryUrl: 'https://example.com/unreachable-registry.json',
+            sources: [],
+            fetch: async () => {
+                throw new Error('Network offline');
+            }
+        });
+
+        const shell = await createShell({ filesystem: { home: {} } });
+        shell.context.setCommand(OfflineWbt);
+
+        const listRes = await run(shell, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(listRes.output.join('\n')).toContain('vim/wasm 9.1.700');
+        expect(listRes.output.join('\n')).toContain('nano/wasm 8.0.1');
+        expect(shell.context.fs.exists('/var/cache/wbt/registry.json')).toBe(true);
+    });
+});
+
+describe('WBT Vim WASM package (vim / vi / vim-wasm)', () => {
+    let shell;
+
+    beforeEach(async () => {
+        shell = await createShell();
+        shell.context.setCommand(createTestWbt());
+    });
+
+    it('registers vim, vi, and vim-wasm in registry, wbt search, and wbt show', async () => {
+        const listRes = await run(shell, 'wbt list');
+        expect(listRes.exitCode).toBe(0);
+        expect(listRes.output.join('\n')).toContain('vim/wasm 9.1.700');
+
+        const searchRes = await run(shell, 'wbt search vim');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('vim/wasm');
+
+        for (const name of ['vim', 'vi', 'vim-wasm']) {
+            const showRes = await run(shell, `wbt show ${name}`);
+            expect(showRes.exitCode).toBe(0);
+            const text = showRes.output.join('\n');
+            expect(text).toContain('Package: vim');
+            expect(text).toContain('Version: 9.1.700');
+            expect(text).toContain('Aliases: vi, vim-wasm');
+        }
+    });
+
+    it('installs vim, vi, and vim-wasm into /bin and runs --version and --help', async () => {
+        const installRes = await run(shell, 'wbt install vim');
+        expect(installRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/vim.wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/vim')).toBe(true);
+        expect(shell.context.fs.exists('/bin/vi')).toBe(true);
+        expect(shell.context.fs.exists('/bin/vim-wasm')).toBe(true);
+
+        const verRes = await run(shell, 'vim --version');
+        expect(verRes.exitCode).toBe(0);
+        expect(verRes.output.join('\n')).toMatch(/VIM - Vi IMproved 9\.1|vim.*9\.1\.700.*wasm/i);
+
+        const helpRes = await run(shell, 'vim --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toMatch(/Usage:\s+vim/i);
+
+        const aliasVerRes = await run(shell, 'vi --version');
+        expect(aliasVerRes.exitCode).toBe(0);
+        expect(aliasVerRes.output.join('\n')).toMatch(/VIM - Vi IMproved 9\.1|vim.*9\.1\.700.*wasm/i);
+    });
+
+    it('supports wbt run vim --version without permanently installing', async () => {
+        const runRes = await run(shell, 'wbt run vim --version');
+        expect(runRes.exitCode).toBe(0);
+        expect(runRes.output.join('\n')).toMatch(/VIM - Vi IMproved 9\.1|vim.*9\.1\.700.*wasm/i);
+        expect(shell.context.fs.exists('/bin/vim')).toBe(false);
+    });
+
+    it('sets interactive flag properly for vim modes vs --version/--help', async () => {
+        await run(shell, 'wbt install vim');
+        const VimCmd = shell.context.fs.getFileByPath('/bin/vim');
+        expect(VimCmd).toBeDefined();
+
+        expect(new VimCmd(['/test.txt'], shell.context).interactive).toBe(true);
+        expect(new VimCmd(['-v', '/test.txt'], shell.context).interactive).toBe(true);
+        expect(new VimCmd(['--version'], shell.context).interactive).toBe(false);
+        expect(new VimCmd(['--help'], shell.context).interactive).toBe(false);
+    });
+
+    it('removes vim and unregisters vim, vi, and vim-wasm from /bin', async () => {
+        await run(shell, 'wbt install vi');
+        expect(shell.context.fs.exists('/bin/vim')).toBe(true);
+        expect(shell.context.fs.exists('/bin/vi')).toBe(true);
+        expect(shell.context.fs.exists('/bin/vim-wasm')).toBe(true);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/vim.wasm')).toBe(true);
+
+        const rmRes = await run(shell, 'wbt remove vim');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/vim')).toBe(false);
+        expect(shell.context.fs.exists('/bin/vi')).toBe(false);
+        expect(shell.context.fs.exists('/bin/vim-wasm')).toBe(false);
+        expect(shell.context.fs.exists('/var/lib/wbt/wasm/vim.wasm')).toBe(false);
+    });
+
+    it('runs vim interactively, creates and edits files, and exits cleanly', async () => {
+        if (!VIM_WASM_BYTES) return;
+        await run(shell, 'wbt install vim');
+
+        const stdoutChunks = [];
+        const onData = (chunk) => stdoutChunks.push(chunk);
+        shell.stdout.on('data', onData);
+
+        const createPromise = shell.onCommand('vim /test.txt');
+        await new Promise(r => setTimeout(r, 80));
+
+        for (const k of ['i', ...'Hello from Vim!', 'Escape', ':', 'w', 'q', 'Enter']) {
+            shell.onInput(k);
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        await createPromise;
+        shell.stdout.off('data', onData);
+
+        const joinedOutput = stdoutChunks.join('');
+        expect(shell.lastCode).toBe(0);
+        expect(shell.context.fs.getFileByPath('/test.txt')).toBe('Hello from Vim!\n');
+        expect(joinedOutput).toContain('\x1b[?1049h');
+        expect(joinedOutput).toContain('\x1b[?1049l');
+
+        const editPromise = shell.onCommand('vim /test.txt');
+        await new Promise(r => setTimeout(r, 80));
+
+        for (const k of ['d', 'd', 'i', ...'Short!', 'Escape', ':', 'w', 'q', 'Enter']) {
+            shell.onInput(k);
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        await editPromise;
+        expect(shell.lastCode).toBe(0);
+        expect(shell.context.fs.getFileByPath('/test.txt')).toBe('Short!\n');
     });
 });
 

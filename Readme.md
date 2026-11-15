@@ -261,7 +261,7 @@ Scripts run in a sub-shell and do not share context with the parent. To persist 
 
 ## Web Binary Tool (`wbt`) — Optional WASM Binary Manager
 
-`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `nano`, `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). It is **not** included in the default shell bundle unless you explicitly register it.
+`wbt` is an optional, APT-style binary manager for `brsh` that lets users install and run WebAssembly binaries (such as `vim`, `nano`, `wllama`, `sqlite3`, `assemblyscript` / `asc`, `jq`, `python3`, `duckdb`, `graphviz`, `ffmpeg`, `wabt`, `quickjs`, `lua`, or custom `.wasm`/`.wat`/ESM URLs). Like `apt`, `wbt` pulls the package index from JSON (`registryUrl` / `sources`) and caches it in `/var/cache/wbt/registry.json` (refreshable via `wbt update`). It is **not** included in the default shell bundle unless you explicitly register it.
 
 ### Enabling `wbt`
 
@@ -312,18 +312,19 @@ shell.onCommand('tool.wasm --help');
 wbt list
 wbt list --installed
 
-# Search, inspect, and update package lists
+# Search, inspect, and update package lists (pulls & caches /var/cache/wbt/registry.json)
 wbt search sql
 wbt show sqlite3
 wbt update
 
 # Install curated WASM packages into /bin
-wbt install nano wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
+wbt install vim nano wllama sqlite3 assemblyscript jq python3 duckdb graphviz ffmpeg wabt quickjs lua
 
 # Run a package directly without permanently installing it
 wbt run jq -r ".name" package.json
 
-# Run GNU nano text editor (compiled to WebAssembly with wide-char ncurses and built-in terminfo)
+# Run Vim 9.1 or GNU nano text editors (compiled to WebAssembly with wide-char ncurses and built-in terminfo)
+vim /home/hello.txt
 nano /home/hello.txt
 
 # Run Wllama v3 (llama.cpp WASM + WebGPU) for one-shot completions or interactive chat REPL!
