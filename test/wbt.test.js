@@ -1150,6 +1150,43 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(runHelpRes.output.join('\n')).toContain('Usage: wllama');
     });
 
+    it('installs wllama from the built ESM browser bundle without __dirname', async () => {
+        const { default: BundledWbt } = await import('../dist/wbt.es.js');
+        const ConfiguredBundledWbt = BundledWbt.configure({
+            fetch: async (url) => {
+                if (url.endsWith('.wasm')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        arrayBuffer: async () => new Uint8Array([0x00, 0x61, 0x73, 0x6d]).buffer
+                    };
+                }
+                throw new Error(`Unexpected fetch: ${url}`);
+            }
+        });
+
+        const browserShell = await createShell({ filesystem: { home: {} } });
+        browserShell.context.setCommand(ConfiguredBundledWbt);
+
+        const installRes = await run(browserShell, 'wbt install wllama');
+        expect(installRes.exitCode).toBe(0);
+        expect(browserShell.context.fs.exists('/bin/wllama')).toBe(true);
+        expect(browserShell.context.fs.exists('/bin/llama')).toBe(true);
+        expect(browserShell.context.fs.exists('/bin/llama-cli')).toBe(true);
+
+        const helpRes = await run(browserShell, 'wllama --help');
+        expect(helpRes.exitCode).toBe(0);
+        expect(helpRes.output.join('\n')).toContain('Usage: wllama');
+
+        // Also verify generated __source can be evaluated without Node require() via globalThis.__brshWllamaAdapter
+        const WllamaCmd = browserShell.context.fs.getFileByPath('/usr/lib/wllama/wllama.js');
+        expect(typeof WllamaCmd).toBe('function');
+        expect(typeof WllamaCmd.__source).toBe('string');
+        const mod = { exports: {} };
+        new Function('module', 'exports', 'require', WllamaCmd.__source)(mod, mod.exports, undefined);
+        expect(typeof mod.exports).toBe('function');
+    });
+
     it('runs one-shot chat completions from a local filesystem .gguf model, piped stdin, or -f file with WebGPU or --no-gpu', async () => {
         const res1 = await run(
             shell,
@@ -1399,19 +1436,24 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(showRes.exitCode).toBe(0);
         expect(showRes.output.join('\n')).toContain('Package: nano');
         expect(showRes.output.join('\n')).toContain('Version: 8.0.1');
-        expect(showRes.output.join('\n')).toContain('Aliases: nano-wasm');
+        expect(showRes.output.join('\n')).toContain('Aliases: nano-wasm, pico');
 
         const showAliasRes = await run(shell, 'wbt show nano-wasm');
         expect(showAliasRes.exitCode).toBe(0);
         expect(showAliasRes.output.join('\n')).toContain('Package: nano');
+
+        const showPicoRes = await run(shell, 'wbt show pico');
+        expect(showPicoRes.exitCode).toBe(0);
+        expect(showPicoRes.output.join('\n')).toContain('Package: nano');
     });
 
-    it('installs nano and nano-wasm into /bin and runs --version and --help', async () => {
+    it('installs nano, nano-wasm, and pico into /bin and runs --version and --help', async () => {
         const installRes = await run(shell, 'wbt install nano');
         expect(installRes.exitCode).toBe(0);
         expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/pico')).toBe(true);
 
         const verRes = await run(shell, 'nano --version');
         expect(verRes.exitCode).toBe(0);
@@ -1424,6 +1466,10 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         const aliasVerRes = await run(shell, 'nano-wasm --version');
         expect(aliasVerRes.exitCode).toBe(0);
         expect(aliasVerRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
+
+        const picoVerRes = await run(shell, 'pico --version');
+        expect(picoVerRes.exitCode).toBe(0);
+        expect(picoVerRes.output.join('\n')).toMatch(/GNU nano, version 8\.0|nano.*8\.0\.[0-9]+.*wasm/i);
     });
 
     it('supports wbt run nano --version without permanently installing', async () => {
@@ -1433,16 +1479,18 @@ describe('WBT GNU nano WASM package (nano / nano-wasm)', () => {
         expect(shell.context.fs.exists('/bin/nano')).toBe(false);
     });
 
-    it('removes nano and unregisters both nano and nano-wasm from /bin', async () => {
-        await run(shell, 'wbt install nano-wasm');
+    it('removes nano and unregisters nano, nano-wasm, and pico from /bin', async () => {
+        await run(shell, 'wbt install pico');
         expect(shell.context.fs.exists('/bin/nano')).toBe(true);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(true);
+        expect(shell.context.fs.exists('/bin/pico')).toBe(true);
         expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(true);
 
         const rmRes = await run(shell, 'wbt remove nano');
         expect(rmRes.exitCode).toBe(0);
         expect(shell.context.fs.exists('/bin/nano')).toBe(false);
         expect(shell.context.fs.exists('/bin/nano-wasm')).toBe(false);
+        expect(shell.context.fs.exists('/bin/pico')).toBe(false);
         expect(shell.context.fs.exists('/usr/lib/nano/nano.wasm')).toBe(false);
     });
 
@@ -1675,6 +1723,36 @@ describe('WBT filesystem installer architecture (installer, not runtime)', () =>
 
         const execRes = await run(shell, 'mytool hello world');
         expect(execRes.exitCode).toBe(0);
+    });
+
+    it('registers vim package from eliotstocker/vim-wasm with vi and vim-wasm aliases', async () => {
+        const searchRes = await run(shell, 'wbt search vim');
+        expect(searchRes.exitCode).toBe(0);
+        expect(searchRes.output.join('\n')).toContain('vim');
+
+        const showRes = await run(shell, 'wbt show vim');
+        expect(showRes.exitCode).toBe(0);
+        expect(showRes.output.join('\n')).toContain('Package: vim');
+        expect(showRes.output.join('\n')).toContain('Version: 9.1.0700');
+        expect(showRes.output.join('\n')).toContain('Aliases: vi, vim-wasm');
+
+        const showViRes = await run(shell, 'wbt show vi');
+        expect(showViRes.exitCode).toBe(0);
+        expect(showViRes.output.join('\n')).toContain('Package: vim');
+
+        const installRes = await run(shell, 'wbt install vi');
+        expect(installRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/usr/lib/vim/vim.wasm')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/vim')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/vi')).toBe(true);
+        expect(shell.context.fs.isSymlink('/bin/vim-wasm')).toBe(true);
+
+        const rmRes = await run(shell, 'wbt remove vim');
+        expect(rmRes.exitCode).toBe(0);
+        expect(shell.context.fs.exists('/bin/vim')).toBe(false);
+        expect(shell.context.fs.exists('/bin/vi')).toBe(false);
+        expect(shell.context.fs.exists('/bin/vim-wasm')).toBe(false);
+        expect(shell.context.fs.exists('/usr/lib/vim/vim.wasm')).toBe(false);
     });
 
     it('registers doom package with aliases doom-wasm, doom-ascii, and freedoom launcher script', async () => {
