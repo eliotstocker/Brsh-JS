@@ -1,3 +1,10 @@
+## [3.10.4](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.3...v3.10.4) (2026-11-26)
+
+
+### Bug Fixes
+
+* **wbt:** avoid __dirname in browser bundle for wllama, add pico alias and vim package ([11ad8ec](https://github.com/eliotstocker/Brsh-JS/commit/11ad8ec1af42584aaea2299e153084b42151060e))
+
 ## [3.10.3](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.2...v3.10.3) (2026-11-11)
 
 
