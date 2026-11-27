@@ -1276,6 +1276,23 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(combinedStatus).toContain('Loading model (tinyllama.gguf) weights');
         expect(combinedStatus).toContain('Running inference');
         expect(combinedStatus).toMatch(/\[.*\]/);
+
+        // Ensure status clearing (\r\x1b[K) never fires after tokens start streaming to stdout
+        for (const cmd of ['wllama -m /home/tinyllama.gguf -p "No clobber"', 'wllama -m /home/tinyllama.gguf --raw -p "Raw no clobber"']) {
+            const timeline = [];
+            const onTok = (t) => timeline.push({ stream: 'token', data: String(t) });
+            const onErr = (c) => timeline.push({ stream: 'err', data: String(c) });
+            shell.on('token', onTok);
+            shell.stderr.on('data', onErr);
+            await run(shell, cmd);
+            shell.removeListener('token', onTok);
+            shell.stderr.removeListener('data', onErr);
+
+            const firstTokenIdx = timeline.findIndex(e => e.stream === 'token');
+            expect(firstTokenIdx).toBeGreaterThanOrEqual(0);
+            const errAfterFirstToken = timeline.slice(firstTokenIdx + 1).filter(e => e.stream === 'err' && e.data.includes('\x1b[K'));
+            expect(errAfterFirstToken).toEqual([]);
+        }
     });
 
     it('supports Hugging Face model loading (--hf / hf:), embeddings (wllama embed), info, and bench', async () => {
