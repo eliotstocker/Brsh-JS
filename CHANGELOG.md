@@ -1,3 +1,10 @@
+## [3.10.5](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.4...v3.10.5) (2026-11-27)
+
+
+### Bug Fixes
+
+* **wbt:** prevent wllama status clear from erasing streamed tokens ([7c882e2](https://github.com/eliotstocker/Brsh-JS/commit/7c882e2007ef3be0c621a5d001e75b5cf40af1c7))
+
 ## [3.10.4](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.3...v3.10.4) (2026-11-26)
 
 
