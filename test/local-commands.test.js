@@ -752,3 +752,113 @@ describe('set', () => {
         expect(output).toContain('hello');
     });
 });
+
+describe('shift', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('drops the first positional parameter', async () => {
+        await shell.onCommand('set -- a b c');
+        await shell.onCommand('shift');
+        expect(shell.context.getVar('1')).toBe('b');
+        expect(shell.context.getVar('2')).toBe('c');
+        expect(shell.context.getVar('3')).toBe('');
+        expect(shell.context.getVar('#')).toBe('2');
+    });
+
+    it('shift N drops N parameters', async () => {
+        await shell.onCommand('set -- a b c d');
+        await shell.onCommand('shift 3');
+        expect(shell.context.getVar('1')).toBe('d');
+        expect(shell.context.getVar('#')).toBe('1');
+    });
+
+    it('errors when the count is out of range', async () => {
+        await shell.onCommand('set -- a');
+        const { errors, exitCode } = await run(shell, 'shift 2');
+        expect(errors.join(' ')).toMatch(/out of range/);
+        expect(exitCode).toBeGreaterThan(0);
+        expect(shell.context.getVar('1')).toBe('a');
+    });
+
+    it('errors on a non-numeric count', async () => {
+        const { errors, exitCode } = await run(shell, 'shift abc');
+        expect(errors.join(' ')).toMatch(/numeric argument required/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors with no parameters', async () => {
+        const { exitCode } = await run(shell, 'shift');
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});
+
+describe('unset', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('removes a variable', async () => {
+        await shell.onCommand('export FOO=bar');
+        await shell.onCommand('unset FOO');
+        expect(shell.context.getVar('FOO')).toBe('');
+        expect('FOO' in shell.context.vars).toBe(false);
+    });
+
+    it('accepts -v and several names', async () => {
+        await shell.onCommand('export A=1');
+        await shell.onCommand('export B=2');
+        await shell.onCommand('unset -v A B');
+        expect(shell.context.getVar('A')).toBe('');
+        expect(shell.context.getVar('B')).toBe('');
+    });
+
+    it('succeeds for a variable that is not set', async () => {
+        const { exitCode, errors } = await run(shell, 'unset NOPE');
+        expect(exitCode).toBe(0);
+        expect(errors).toEqual([]);
+    });
+
+    it('errors on an invalid identifier', async () => {
+        const { errors, exitCode } = await run(shell, 'unset 1bad-name');
+        expect(errors.join(' ')).toMatch(/not a valid identifier/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors on unsupported options', async () => {
+        const { errors, exitCode } = await run(shell, 'unset -f foo');
+        expect(errors.join(' ')).toMatch(/only -v/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});
+
+describe(':', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('does nothing and exits 0', async () => {
+        const { exitCode, output, errors } = await run(shell, ': whatever');
+        expect(exitCode).toBe(0);
+        expect(output).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+    it('still performs expansions in its arguments', async () => {
+        await shell.onCommand(': ${NEWVAR:=assigned}');
+        expect(shell.context.getVar('NEWVAR')).toBe('assigned');
+    });
+
+    it('resets the exit code after a failure', async () => {
+        await shell.onCommand('false');
+        const { exitCode } = await run(shell, ':');
+        expect(exitCode).toBe(0);
+    });
+});
+
+describe('local outside a function', () => {
+    it('errors', async () => {
+        const shell = await createShell();
+        const { errors, exitCode } = await run(shell, 'local X=1');
+        expect(errors.join(' ')).toMatch(/can only be used in a function/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});

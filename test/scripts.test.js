@@ -707,3 +707,131 @@ describe('$@ and $*', () => {
         expect(await out('/scripts/none.sh')).toEqual(['n=0']);
     });
 });
+
+describe('local, shift, unset and : in scripts', () => {
+    let shell;
+    const scripts = {
+        'local.sh': '#!/sh.js\nX=outer\nf() {\nlocal X=inner\necho "in:$X"\n}\nf\necho "out:$X"',
+        'local-new.sh': '#!/sh.js\nf() {\nlocal NEWVAR=1\necho "in:$NEWVAR"\n}\nf\necho "out:[$NEWVAR]"',
+        'local-unset.sh': '#!/sh.js\nX=outer\nf() {\nlocal X\necho "in:[$X]"\n}\nf\necho "out:$X"',
+        'local-multi.sh': '#!/sh.js\nA=a\nB=b\nf() {\nlocal A=1 B=2 C\necho "$A$B[$C]"\n}\nf\necho "$A$B"',
+        'local-twice.sh': '#!/sh.js\nX=orig\nf() {\nlocal X=1\nlocal X=2\necho $X\n}\nf\necho $X',
+        'local-nested.sh': '#!/sh.js\nX=top\ng() {\necho "g:$X"\nX=g-changed\n}\nf() {\nlocal X=f-local\ng\necho "f:$X"\n}\nf\necho "top:$X"',
+        'local-global-write.sh': '#!/sh.js\nf() {\nG=set-in-f\n}\nf\necho $G',
+        'local-recursion.sh': '#!/sh.js\nf() {\nlocal N=$1\nif [ $N -gt 0 ]; then\nf $((N - 1))\nfi\necho $N\n}\nf 2',
+        'local-top.sh': '#!/sh.js\nlocal X=1\necho after',
+        'local-bad.sh': '#!/sh.js\nf() {\nlocal 1bad=x\n}\nf',
+        'shift.sh': '#!/sh.js\necho "$# $1 $2 $3"\nshift\necho "$# $1 $2 $3"\nshift 2\necho "$# [$1]"',
+        'shift-all.sh': '#!/sh.js\nshift 3\necho "$# [$@]"',
+        'shift-range.sh': '#!/sh.js\nshift 5\necho unreachable',
+        'shift-fn.sh': '#!/sh.js\nf() {\nshift\necho "f:$1 $#"\n}\nf a b c\necho "top:$1 $#"',
+        'shift-loop.sh': '#!/sh.js\nwhile [ $# -gt 0 ]; do\necho "arg:$1"\nshift\ndone',
+        'unset.sh': '#!/sh.js\nA=1\nB=2\nunset A\necho "[$A][$B]"\nunset B NOPE\necho "[$B]"',
+        'unset-default.sh': '#!/sh.js\nA=1\nunset A\necho ${A:-gone}',
+        'unset-bad.sh': '#!/sh.js\nunset 1bad\necho rc=$?',
+        'colon.sh': '#!/sh.js\n: ignored args\necho "rc=$?"',
+        'colon-default.sh': '#!/sh.js\n: ${CFG:=fallback}\necho $CFG',
+        'colon-while.sh': '#!/sh.js\nn=0\nwhile :; do\nn=$((n + 1))\nif [ $n -ge 3 ]; then\nbreak\nfi\ndone\necho $n'
+    };
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {scripts},
+            permissions: execPerms(...Object.keys(scripts).map(n => `/scripts/${n}`))
+        });
+    });
+
+    const out = async cmd => (await run(shell, cmd)).output;
+
+    it('local shadows a variable and restores it on return', async () => {
+        expect(await out('/scripts/local.sh')).toEqual(['in:inner', 'out:outer']);
+    });
+
+    it('a local that did not exist before is gone after return', async () => {
+        expect(await out('/scripts/local-new.sh')).toEqual(['in:1', 'out:[]']);
+    });
+
+    it('local without a value starts unset and restores the old value', async () => {
+        expect(await out('/scripts/local-unset.sh')).toEqual(['in:[]', 'out:outer']);
+    });
+
+    it('local takes several names at once', async () => {
+        expect(await out('/scripts/local-multi.sh')).toEqual(['12[]', 'ab']);
+    });
+
+    it('declaring the same local twice still restores the original', async () => {
+        expect(await out('/scripts/local-twice.sh')).toEqual(['2', 'orig']);
+    });
+
+    it('callees see and modify the caller\'s local (dynamic scope)', async () => {
+        expect(await out('/scripts/local-nested.sh')).toEqual(['g:f-local', 'f:g-changed', 'top:top']);
+    });
+
+    it('plain assignments in a function stay global', async () => {
+        expect(await out('/scripts/local-global-write.sh')).toEqual(['set-in-f']);
+    });
+
+    it('each recursive call has its own local', async () => {
+        expect(await out('/scripts/local-recursion.sh')).toEqual(['0', '1', '2']);
+    });
+
+    it('local outside a function is an error', async () => {
+        const res = await run(shell, '/scripts/local-top.sh');
+        expect(res.errors.join(' ')).toMatch(/can only be used in a function/);
+        expect(res.output).toContain('after');
+    });
+
+    it('local rejects an invalid name', async () => {
+        const res = await run(shell, '/scripts/local-bad.sh');
+        expect(res.errors.join(' ')).toMatch(/not a valid identifier/);
+    });
+
+    it('shift drops positional parameters and updates $#', async () => {
+        expect(await out('/scripts/shift.sh a b c d')).toEqual(['4 a b c', '3 b c d', '1 [d]']);
+    });
+
+    it('shift N past all parameters leaves none', async () => {
+        expect(await out('/scripts/shift-all.sh a b c')).toEqual(['0 []']);
+    });
+
+    it('shift with a count out of range errors and changes nothing', async () => {
+        const res = await run(shell, '/scripts/shift-range.sh a b');
+        expect(res.errors.join(' ')).toMatch(/shift count out of range/);
+    });
+
+    it('shift inside a function only affects the function\'s parameters', async () => {
+        expect(await out('/scripts/shift-fn.sh x y')).toEqual(['f:b 2', 'top:x 2']);
+    });
+
+    it('shift drives an argument loop', async () => {
+        expect(await out('/scripts/shift-loop.sh a b c')).toEqual(['arg:a', 'arg:b', 'arg:c']);
+    });
+
+    it('unset removes variables and ignores ones that do not exist', async () => {
+        expect(await out('/scripts/unset.sh')).toEqual(['[][2]', '[]']);
+    });
+
+    it('an unset variable takes the default again', async () => {
+        expect(await out('/scripts/unset-default.sh')).toEqual(['gone']);
+    });
+
+    it('unset rejects an invalid name', async () => {
+        const res = await run(shell, '/scripts/unset-bad.sh');
+        expect(res.errors.join(' ')).toMatch(/not a valid identifier/);
+        expect(res.output).toEqual(['rc=1']);
+    });
+
+    it(': does nothing and exits 0', async () => {
+        const res = await run(shell, '/scripts/colon.sh');
+        expect(res.output).toEqual(['rc=0']);
+        expect(res.errors).toEqual([]);
+    });
+
+    it(': ${VAR:=default} assigns the default', async () => {
+        expect(await out('/scripts/colon-default.sh')).toEqual(['fallback']);
+    });
+
+    it('while : loops until break', async () => {
+        expect(await out('/scripts/colon-while.sh')).toEqual(['3']);
+    });
+});

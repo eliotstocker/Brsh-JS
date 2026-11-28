@@ -34,7 +34,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `function name { … }` definition
 - [x] `return [n]`
 - [x] Positional parameters (`$1`, `$2`, … inside function)
-- [ ] `local var` — function-scoped variables
+- [x] `local var` — function-scoped variables *(`local X`, `local X=v`, several names; dynamic scope, restored on return, per-call in recursion; error outside a function)*
 
 ### Variable Expansion
 - [x] `$VAR` / `${VAR}`
@@ -72,11 +72,11 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `set` (flags + positional params)
 - [x] `source` / `. script`
 - [x] `.` — dot command (alias for `source`)
-- [ ] `:` — no-op, always exits 0
+- [x] `:` — no-op, always exits 0 *(arguments are still expanded, so `: ${VAR:=default}` works)*
 - [x] `break [n]`
 - [x] `continue [n]`
-- [ ] `shift [n]`
-- [ ] `unset var`
+- [x] `shift [n]` *(updates `$1`…, `$#`, `$@`, `$*`; scoped to the function when used inside one; errors when out of range)*
+- [x] `unset var` *(`-v` and several names; `-f` for functions not supported)*
 - [ ] `readonly var`
 - [ ] `eval string`
 - [ ] `exec [cmd]`
@@ -149,12 +149,12 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 ## Priority Order
 
 1. **Input redirect (`<`)** — needed for many real scripts
-2. **`shift` / `unset` / `:`** — small special builtins, high frequency in scripts
+2. **`eval` / `readonly` / `trap` / `exec`** — remaining special builtins
 3. **`$0`** — script / shell name (currently expands to empty in scripts)
 4. **`${var#pat}` / `${var%pat}` pattern removal** — the remaining common parameter expansion forms
 5. **`wc`, `head`, `sort`, `uniq`, `tr`, `cut`** — most-used text utilities
 6. **`basename` / `dirname`** — common path helpers
-7. **`local`** — function-scoped variables
+7. **`unset -f`** — remove functions
 8. **`date`, `sleep`** — misc utilities
 9. **`set -u` enforcement** — nounset mode
 10. **Glob expansion** — needed for `ls *.txt` style usage

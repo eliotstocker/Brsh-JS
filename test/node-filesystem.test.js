@@ -260,6 +260,40 @@ describe('ln', () => {
         expect(fs.readlinkSync(path.join(tmpDir, 'link.txt'))).toBe('other.txt');
     });
 
+    it('refuses to replace an existing file with a symlink without -f', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'link.txt'), 'precious');
+        const { exitCode, errors } = await run(shell, 'ln -s file.txt link.txt');
+        expect(exitCode).toBe(1);
+        expect(errors.join('')).toMatch(/File exists/);
+        expect(fs.lstatSync(path.join(tmpDir, 'link.txt')).isSymbolicLink()).toBe(false);
+        expect(fs.readFileSync(path.join(tmpDir, 'link.txt'), 'utf8')).toBe('precious');
+    });
+
+    it('refuses to replace an existing symlink without -f', async () => {
+        await run(shell, 'ln -s file.txt link.txt');
+        const { exitCode, errors } = await run(shell, 'ln -s other.txt link.txt');
+        expect(exitCode).toBe(1);
+        expect(errors.join('')).toMatch(/File exists/);
+        expect(fs.readlinkSync(path.join(tmpDir, 'link.txt'))).toBe('file.txt');
+    });
+
+    it('refuses to replace an existing file with a hard link without -f', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'taken.txt'), 'precious');
+        const { exitCode, errors } = await run(shell, 'ln file.txt taken.txt');
+        expect(exitCode).toBe(1);
+        expect(errors.join('')).toMatch(/File exists/);
+        expect(fs.readFileSync(path.join(tmpDir, 'taken.txt'), 'utf8')).toBe('precious');
+    });
+
+    it('refuses to link into a directory that already has that name', async () => {
+        fs.mkdirSync(path.join(tmpDir, 'dir'));
+        fs.writeFileSync(path.join(tmpDir, 'dir', 'file.txt'), 'in dir');
+        const { exitCode, errors } = await run(shell, 'ln -s file.txt dir');
+        expect(exitCode).toBe(1);
+        expect(errors.join('')).toMatch(/File exists/);
+        expect(fs.readFileSync(path.join(tmpDir, 'dir', 'file.txt'), 'utf8')).toBe('in dir');
+    });
+
     it('errors when source missing for hard link', async () => {
         const { exitCode, errors } = await run(shell, 'ln ghost.txt link.txt');
         expect(exitCode).toBe(1);
