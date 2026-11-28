@@ -176,6 +176,92 @@ describe('read', () => {
         expect(shell.context.getVar('CHAR')).toBe('x');
     });
 
+    const feed = async (cmd, text) => {
+        const p = shell.onCommand(cmd);
+        await new Promise(resolve => setImmediate(resolve));
+        [...text].forEach(c => shell.onInput(c));
+        shell.onInput('Enter');
+        await p;
+    };
+
+    it('splits input across multiple names, last takes the remainder', async () => {
+        await feed('read -t 1 A B C', '  one two  three four  ');
+        expect(shell.context.getVar('A')).toBe('one');
+        expect(shell.context.getVar('B')).toBe('two');
+        expect(shell.context.getVar('C')).toBe('three four');
+    });
+
+    it('respects IFS', async () => {
+        await shell.onCommand('export IFS=:');
+        await feed('read -t 1 A B', 'x:y:z');
+        expect(shell.context.getVar('A')).toBe('x');
+        expect(shell.context.getVar('B')).toBe('y:z');
+    });
+
+    it('trims surrounding IFS whitespace with a single name', async () => {
+        await feed('read -t 1 V', '   padded value  ');
+        expect(shell.context.getVar('V')).toBe('padded value');
+    });
+
+    it('leaves extra names empty when input has fewer fields', async () => {
+        await feed('read -t 1 A B C', 'only');
+        expect(shell.context.getVar('A')).toBe('only');
+        expect(shell.context.getVar('B')).toBe('');
+        expect(shell.context.getVar('C')).toBe('');
+    });
+
+    it('handles whitespace around non-whitespace IFS separators', async () => {
+        await shell.onCommand('export IFS=" :"');
+        await feed('read -t 1 A B C', 'x : y z');
+        expect(shell.context.getVar('A')).toBe('x');
+        expect(shell.context.getVar('B')).toBe('y');
+        expect(shell.context.getVar('C')).toBe('z');
+    });
+
+    it('treats an escaped backslash as a literal backslash without -r', async () => {
+        await feed('read -t 1 V', 'a\\\\b');
+        expect(shell.context.getVar('V')).toBe('a\\b');
+    });
+
+    it('continues the line on backslash-newline without -r', async () => {
+        const p = shell.onCommand('read -t 1 V');
+        await new Promise(resolve => setImmediate(resolve));
+        ['a', '\\', 'Enter', 'b', 'Enter'].forEach(k => shell.onInput(k));
+        await p;
+        expect(shell.context.getVar('V')).toBe('ab');
+    });
+
+    it('ends the line on backslash-newline with -r', async () => {
+        const p = shell.onCommand('read -r -t 1 V');
+        await new Promise(resolve => setImmediate(resolve));
+        ['a', '\\', 'Enter'].forEach(k => shell.onInput(k));
+        await p;
+        expect(shell.context.getVar('V')).toBe('a\\');
+    });
+
+    it('accepts -r combined with -n', async () => {
+        const p = shell.onCommand('read -r -n 3 -t 1 V');
+        await new Promise(resolve => setImmediate(resolve));
+        [...'a\\bcd'].forEach(c => shell.onInput(c));
+        await p;
+        expect(shell.context.getVar('V')).toBe('a\\b');
+    });
+
+    it('mentions -r in usage', async () => {
+        const { output } = await run(shell, 'read -h');
+        expect(output.join(' ')).toContain('-r');
+    });
+
+    it('strips backslashes without -r', async () => {
+        await feed('read -t 1 V', 'a\\bc');
+        expect(shell.context.getVar('V')).toBe('abc');
+    });
+
+    it('keeps backslashes with -r', async () => {
+        await feed('read -r -t 1 V', 'a\\bc');
+        expect(shell.context.getVar('V')).toBe('a\\bc');
+    });
+
     it('shows help with -h', async () => {
         const { output } = await run(shell, 'read -h');
         expect(output.join(' ')).toMatch(/usage/i);
