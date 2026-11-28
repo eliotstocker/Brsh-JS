@@ -1,3 +1,11 @@
+## [3.10.10](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.9...v3.10.10) (2026-11-28)
+
+
+### Bug Fixes
+
+* parse one-line if/elif/else/for/while chains in scripts ([cc0966c](https://github.com/eliotstocker/Brsh-JS/commit/cc0966c3a25b72a70953f0ccf7cf3b7e3f96b379))
+* run if/for/while/case typed at the prompt ([b1355f6](https://github.com/eliotstocker/Brsh-JS/commit/b1355f6f9c2159c0250b0738d608af9699dd8d87))
+
 ## [3.10.9](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.8...v3.10.9) (2026-11-28)
 
 
