@@ -28,7 +28,8 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `break [n]` — exit loop
 - [x] `continue [n]` — next iteration
 - [x] One-line forms in scripts (`if a; then b; elif c; then d; else e; fi`, `for … ; do …; done`, `while … ; do …; done`, `then`/`else`/`do` followed by a command on the same line)
-- [ ] Control flow typed directly at the prompt (`if`/`for`/`while`/`case` only work inside scripts)
+- [x] Control flow typed directly at the prompt (one-liners, or multi-line with a `> ` continuation prompt; runs in the live shell so `cd`, variables and functions stick; Ctrl-C stops a running loop)
+- [x] One-line `case … in x) cmd;; esac` and `f() { cmd; }` definitions
 - [ ] Subshell `( cmds )`
 
 ### Functions

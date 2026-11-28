@@ -938,3 +938,189 @@ describe('multi-line strings, arithmetic and substitution output', () => {
         expect(await out('echo "$X"')).toEqual(['a', 'b']);
     });
 });
+
+describe('control flow typed at the prompt', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({filesystem: {home: {sub: {}, 'f.txt': 'x'}}, cwd: '/home'});
+    });
+
+    const out = async cmd => {
+        const res = await run(shell, cmd);
+        expect(res.errors).toEqual([]);
+        return res.output;
+    };
+
+    it('runs a one-line if/elif/else chain', async () => {
+        const chain = x => `X=${x}; if [ $X = 1 ]; then echo one; elif [ $X = 2 ]; then echo two; else echo other; fi`;
+        expect(await out(chain(1))).toEqual(['one']);
+        expect(await out(chain(2))).toEqual(['two']);
+        expect(await out(chain(3))).toEqual(['other']);
+    });
+
+    it('runs one-line if, for and while', async () => {
+        expect(await out('if true; then echo yes; fi')).toEqual(['yes']);
+        expect(await out('if false; then echo yes; else echo no; fi')).toEqual(['no']);
+        expect(await out('for i in 1 2 3; do echo $i; done')).toEqual(['1', '2', '3']);
+        expect(await out('i=0; while [ $i -lt 3 ]; do i=$((i + 1)); done; echo i=$i')).toEqual(['i=3']);
+    });
+
+    it('runs commands before and after a block on the same line', async () => {
+        expect(await out('echo before; for i in a b; do echo $i; done; echo after')).toEqual(['before', 'a', 'b', 'after']);
+    });
+
+    it('runs a one-line case and function definition', async () => {
+        expect(await out('case x in x) echo matched;; y) echo no;; esac')).toEqual(['matched']);
+        await shell.onCommand('greet() { echo hello $1; }');
+        expect(await out('greet world')).toEqual(['hello world']);
+    });
+
+    it('break works inside a block', async () => {
+        expect(await out('for i in 1 2 3; do if [ $i = 2 ]; then break; fi; echo $i; done')).toEqual(['1']);
+    });
+
+    it('state changes made inside a block stick around', async () => {
+        await shell.onCommand('for d in sub; do cd $d; done');
+        expect((await out('pwd'))[0]).toBe('/home/sub');
+        await shell.onCommand('if true; then MARK=set; fi');
+        expect(shell.context.getVar('MARK')).toBe('set');
+        await shell.onCommand('for i in 1 2 3; do LAST=$i; done');
+        expect(shell.context.getVar('LAST')).toBe('3');
+    });
+
+    it('does not treat quoted keywords as a block', async () => {
+        expect(await out('echo "if x; then y; fi"')).toEqual(['if x; then y; fi']);
+    });
+
+    it('sets the exit code from the last command in the block', async () => {
+        await shell.onCommand('if true; then false; fi');
+        expect(shell.lastCode).toBe(1);
+        await shell.onCommand('if true; then true; fi');
+        expect(shell.lastCode).toBe(0);
+    });
+
+    it('break outside a loop inside a block is reported', async () => {
+        const res = await run(shell, 'if true; then break; fi');
+        expect(res.errors.join(' ')).toMatch(/only meaningful in a for or while loop/);
+        expect(res.exitCode).toBe(1);
+    });
+
+    it('runs blocks inside command substitution', async () => {
+        expect(await out('echo $(if true; then echo inner; fi)')).toEqual(['inner']);
+        expect(await out('X=$(for i in 1 2; do echo n$i; done); echo $X')).toEqual(['n1 n2']);
+    });
+});
+
+describe('multi-line entry at the prompt', () => {
+    let shell;
+    let screen;
+    beforeEach(async () => {
+        shell = await createShell({filesystem: {home: {}}, cwd: '/home'});
+        screen = '';
+        shell.stdout.on('data', chunk => screen += chunk);
+        await settle();
+        screen = '';
+    });
+
+    const settle = () => new Promise(resolve => setTimeout(resolve, 40));
+    const type = async text => {
+        shell.stdinStream.pushData(text);
+        await settle();
+    };
+    const lastPrompt = () => screen.split('\r\x1b[J').pop();
+
+    it('shows a continuation prompt until the block is closed, then runs it', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+
+        await type('for i in 1 2\r');
+        expect(lastPrompt()).toBe('> ');
+        await type('do\r');
+        expect(lastPrompt()).toBe('> ');
+        await type('echo $i\r');
+        expect(lines).toEqual([]);
+        await type('done\r');
+
+        expect(lines).toEqual(['1', '2']);
+        expect(lastPrompt()).toMatch(/\$ $/);
+    });
+
+    it('collects an if block across lines', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+        await type('if true\r');
+        await type('then\r');
+        await type('echo yes\r');
+        await type('else\r');
+        await type('echo no\r');
+        await type('fi\r');
+        expect(lines).toEqual(['yes']);
+    });
+
+    it('collects nested blocks and case blocks', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+        await type('for i in a b; do\r');
+        await type('if [ $i = b ]; then\r');
+        await type('echo got-b\r');
+        await type('fi\r');
+        await type('done\r');
+        expect(lines).toEqual(['got-b']);
+
+        lines.length = 0;
+        await type('case x in\r');
+        await type('x) echo hit;;\r');
+        await type('esac\r');
+        expect(lines).toEqual(['hit']);
+    });
+
+    it('collects a function definition across lines and keeps it', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+        await type('hi() {\r');
+        await type('echo hi-$1\r');
+        await type('}\r');
+        await type('hi there\r');
+        expect(lines).toEqual(['hi-there']);
+    });
+
+    it('runs a complete one-liner straight away without a continuation prompt', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+        await type('if true; then echo now; fi\r');
+        expect(lines).toEqual(['now']);
+        expect(screen).not.toContain('> ');
+    });
+
+    it('Ctrl-C abandons a half typed block', async () => {
+        const lines = [];
+        shell.on('stdOut', line => lines.push(line));
+        await type('if true\r');
+        await type('\x03');
+        expect(lastPrompt()).toMatch(/\$ $/);
+        await type('echo plain\r');
+        expect(lines).toEqual(['plain']);
+    });
+
+    it('Ctrl-C stops a running loop and returns the prompt', async () => {
+        let ticks = 0;
+        shell.on('stdOut', () => ticks++);
+        await type('while true; do echo tick; done\r');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(ticks).toBeGreaterThan(0);
+
+        await type('\x03');
+        const after = ticks;
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(ticks).toBe(after);
+        expect(shell._working).toBe(false);
+        expect(lastPrompt()).toMatch(/\$ $/);
+    });
+
+    it('state from a multi-line block sticks around', async () => {
+        await type('for i in 1 2 3; do\r');
+        await type('LAST=$i\r');
+        await type('done\r');
+        expect(shell.context.getVar('LAST')).toBe('3');
+    });
+});

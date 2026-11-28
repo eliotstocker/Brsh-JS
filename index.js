@@ -3,6 +3,7 @@
 const Context = require('./lib/Context');
 const LocalCommand = require('./lib/local/LocalCommand');
 const ScriptCommand = require('./lib/ScriptCommand');
+const {skipGroup, hasBlock, isIncomplete} = require('./lib/shellSyntax');
 const WasmCommand = require('./lib/WasmCommand');
 const JsCommand = require('./lib/JsCommand');
 const Command = require('./lib/Command');
@@ -441,8 +442,6 @@ class Shell extends EventEmitter {
         }
         this._fromLineEditor = false;
 
-        const segments = this._splitInput(raw);
-        const groups = this._groupPipes(segments);
         let shouldRun = true;
 
         if (this._loadingFs && events) {
@@ -450,7 +449,11 @@ class Shell extends EventEmitter {
         }
         const initialPromise = this._loadingFs ? Promise.resolve(this._loadingFs) : Promise.resolve();
 
-        const promise = groups.reduce((chain, { commands, op }) => {
+        //if/for/while/case run through the block executor, in this shell (also covers $(...) subshells)
+        const isBlock = hasBlock(raw);
+        const groups = isBlock ? [] : this._groupPipes(this._splitInput(raw));
+
+        const promise = (isBlock ? initialPromise.then(() => this._runBlock(raw)) : groups.reduce((chain, { commands, op }) => {
             return chain.then(() => {
                 if (!shouldRun) {
                     if (op === '&&') shouldRun = this._lastCode === 0;
@@ -464,7 +467,7 @@ class Shell extends EventEmitter {
                     else if (op === ';') shouldRun = true;
                 });
             });
-        }, initialPromise);
+        }, initialPromise));
 
         if(events) {
             return promise.then(() => {
@@ -476,6 +479,18 @@ class Shell extends EventEmitter {
         }
 
         return promise;
+    }
+
+    _runBlock(text) {
+        const block = new ScriptCommand('', [], this.context);
+        this._activeBlock = block;
+        return block.runInline(this, text)
+            .catch(e => {
+                this.emit('stdErr', (e && e.message) || String(e));
+                this.lastCode = 1;
+                this.emit('exitCode', this.lastCode);
+            })
+            .finally(() => delete this._activeBlock);
     }
 
     tabCompletion(path) {
@@ -860,6 +875,9 @@ class Shell extends EventEmitter {
     }
 
     getPrompt() {
+        if (this._pendingLines) {
+            return '>';
+        }
         const path = this.context.fs.cwd.split('/');
         return `${this.context.getVar('HOST')}:${path[path.length -2]}$`;
     }
@@ -1056,6 +1074,12 @@ class Shell extends EventEmitter {
                 ? new TextDecoder().decode(raw)
                 : String(raw ?? '');
 
+        if (this._activeBlock && data === '\x03') {
+            this._activeBlock.kill('SIGINT');
+            this.stdout.write('^C\r\n');
+            return;
+        }
+
         if (this.runningCommand) {
             const cmd = this.runningCommand;
             const isCtrlC = (typeof raw === 'string' && raw === '\x03')
@@ -1146,19 +1170,31 @@ class Shell extends EventEmitter {
             }
 
             if (code === 0x0d || code === 0x0a) {
-                const command = this._lineBuffer.join('');
+                const typed = this._lineBuffer.join('');
                 this._lineBuffer = [];
                 this._cursorPos = 0;
                 this._historyPos = null;
                 this._savedInput = null;
                 this.stdout.write('\r\n');
 
-                if (command.trim()) {
-                    if (this._history[this._history.length - 1] !== command) {
-                        this._history.push(command);
+                if (typed.trim()) {
+                    if (this._history[this._history.length - 1] !== typed) {
+                        this._history.push(typed);
                     }
                     this._saveHistory();
                 }
+
+                //an unfinished if/for/while/case keeps collecting lines, like a PS2 prompt
+                const command = [...(this._pendingLines || []), typed].join('\n');
+                if (isIncomplete(command)) {
+                    this._pendingLines = command.split('\n');
+                    this._lastPromptRowOffset = 0;
+                    this._redrawPromptLine();
+                    if (code === 0x0d && data[i + 1] === '\n') i++;
+                    i++;
+                    continue;
+                }
+                delete this._pendingLines;
 
                 this._fromLineEditor = true;
                 this.onCommand(command);
@@ -1227,6 +1263,7 @@ class Shell extends EventEmitter {
                 this._cursorPos = 0;
                 this._historyPos = null;
                 this._savedInput = null;
+                delete this._pendingLines;
                 this.stdout.write('^C\r\n');
                 this._redrawPromptLine();
                 i++;
@@ -1562,34 +1599,8 @@ class Shell extends EventEmitter {
         throw new Error(`${name}: ${word || 'parameter null or not set'}`);
     }
 
-    //returns the index after the group opened by the $( or ${ at start, or -1 if never closed.
-    //quotes and nested groups are respected so a ) or } inside them doesnt end it early
     static _skipGroup(str, start) {
-        const stack = [];
-        for(let i = start; i < str.length; i++) {
-            const ch = str[i];
-            const top = stack[stack.length -1];
-            if(top === "'") {
-                ch === "'" && stack.pop();
-            } else if(ch === '\\') {
-                i++;
-            } else if(ch === '"') {
-                top === '"' ? stack.pop() : stack.push('"');
-            } else if(ch === "'" && top !== '"') {
-                stack.push("'");
-            } else if(ch === '$' && (str[i + 1] === '{' || str[i + 1] === '(')) {
-                stack.push(str[i + 1] === '{' ? '}' : ')');
-                i++;
-            } else if(ch === '(' && top !== '"') {
-                stack.push(')');
-            } else if(ch === top) {
-                stack.pop();
-                if(stack.length < 1) {
-                    return i + 1;
-                }
-            }
-        }
-        return -1;
+        return skipGroup(str, start);
     }
 
     _evalArithmetic(expr) {
