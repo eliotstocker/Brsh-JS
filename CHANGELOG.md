@@ -1,3 +1,10 @@
+## [3.10.9](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.8...v3.10.9) (2026-11-28)
+
+
+### Bug Fixes
+
+* set ECHO for busybox individual tests ([9e568e3](https://github.com/eliotstocker/Brsh-JS/commit/9e568e31d888f3d2535740a4e1d0ef9d9cedb1e5))
+
 ## [3.10.8](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.7...v3.10.8) (2026-11-28)
 
 
