@@ -348,6 +348,8 @@ doom -iwad /home/doom1.wad -nosound
 wllama -p "Explain WebGPU in one sentence." # uses default SmolLM2 model (or pass -m qwen)
 wllama pull smol -o /home/model.gguf
 wllama -m /home/model.gguf # launches interactive multi-turn chat REPL
+wllama -m /home/model.gguf --json-schema-file /home/schema.json -p "Describe a cat" # output constrained to a JSON Schema
+wllama -m /home/model.gguf --grammar 'root ::= "yes" | "no"' -p "Is the sky blue?" # or a GBNF grammar (--grammar-file too)
 
 # Run SQLite3 (persists database files directly in the brsh filesystem, or run `sqlite3 /home/app.db` for interactive SQL REPL)
 sqlite3 /home/app.db "CREATE TABLE notes (id INT, body TEXT); INSERT INTO notes VALUES (1, 'Hello WASM');"

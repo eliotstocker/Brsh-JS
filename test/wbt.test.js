@@ -374,6 +374,9 @@ function createMockEmscriptenCowsay() {
 /**
  * In-memory mock implementation of @wllama/wllama v3 for deterministic tests.
  */
+//every request the mock receives, so tests can check what the command passed through
+const wllamaRequests = [];
+
 function createMockWllama() {
     class MockWllama {
         constructor(pathConfig, config = {}) {
@@ -445,6 +448,7 @@ function createMockWllama() {
         }
 
         createChatCompletion(opts) {
+            wllamaRequests.push(opts);
             const messages = (opts && opts.messages) || [];
             const sysMsg = messages.find(m => m.role === 'system');
             const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content);
@@ -479,6 +483,7 @@ function createMockWllama() {
         }
 
         createCompletion(opts) {
+            wllamaRequests.push(opts);
             const reply = `${opts.prompt} [completed]`;
             if (opts && opts.stream) {
                 return (async function* () {
@@ -1121,10 +1126,15 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
 
     beforeEach(async () => {
         wllamaInstances.clear();
+        wllamaRequests.length = 0;
         shell = await createShell({
             filesystem: {
                 home: {
                     'tinyllama.gguf': 'GGUF_MODEL_BINARY_BYTES',
+                    'grammar.gbnf': 'root ::= "yes" | "no"',
+                    'schema.json': '{"type":"object","properties":{"a":{"type":"string"}}}',
+                    'bad-schema.json': '{nope',
+                    'empty.gbnf': '   ',
                     'prompt.txt': 'Explain WebGPU in one sentence.'
                 }
             }
@@ -1240,6 +1250,139 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         );
         expect(rawRes.exitCode).toBe(0);
         expect(rawRes.output.join('\n')).toContain('Explain WebGPU in one sentence. [completed]');
+    });
+
+    describe('grammar and JSON schema constraints', () => {
+        const base = 'wllama -m /home/tinyllama.gguf';
+        const grammar = 'root ::= "yes" | "no"';
+        const schema = { type: 'object', properties: { a: { type: 'string' } } };
+
+        it('passes an inline --grammar to chat completions', async () => {
+            const res = await run(shell, `${base} --grammar 'root ::= "yes" | "no"' -p "Answer"`);
+            expect(res.errors).toEqual([]);
+            expect(res.exitCode).toBe(0);
+            expect(wllamaRequests).toHaveLength(1);
+            expect(wllamaRequests[0].grammar).toBe(grammar);
+            expect(wllamaRequests[0].json_schema).toBeUndefined();
+        });
+
+        it('accepts --grammar=VALUE and --grammar-file', async () => {
+            await run(shell, `${base} --grammar='root ::= "yes" | "no"' -p "Answer"`);
+            expect(wllamaRequests[0].grammar).toBe(grammar);
+
+            await run(shell, `${base} --grammar-file /home/grammar.gbnf -p "Answer"`);
+            expect(wllamaRequests[1].grammar).toBe(grammar);
+
+            await run(shell, `${base} --grammar-file=/home/grammar.gbnf -p "Answer"`);
+            expect(wllamaRequests[2].grammar).toBe(grammar);
+        });
+
+        it('passes an inline --json-schema (and -j) as a parsed object', async () => {
+            await run(shell, `${base} --json-schema '{"type":"object","properties":{"a":{"type":"string"}}}' -p "Go"`);
+            expect(wllamaRequests[0].json_schema).toEqual(schema);
+            expect(wllamaRequests[0].grammar).toBeUndefined();
+
+            await run(shell, `${base} -j '{"type":"string"}' -p "Go"`);
+            expect(wllamaRequests[1].json_schema).toEqual({ type: 'string' });
+
+            await run(shell, `${base} --json-schema='{"type":"number"}' -p "Go"`);
+            expect(wllamaRequests[2].json_schema).toEqual({ type: 'number' });
+        });
+
+        it('reads the schema from --json-schema-file', async () => {
+            await run(shell, `${base} --json-schema-file /home/schema.json -p "Go"`);
+            expect(wllamaRequests[0].json_schema).toEqual(schema);
+
+            await run(shell, `${base} --json-schema-file=/home/schema.json -p "Go"`);
+            expect(wllamaRequests[1].json_schema).toEqual(schema);
+        });
+
+        it('applies constraints to raw completions too', async () => {
+            await run(shell, `${base} --raw --grammar-file /home/grammar.gbnf -p "Go"`);
+            expect(wllamaRequests[0].grammar).toBe(grammar);
+            expect(wllamaRequests[0].prompt).toBe('Go');
+
+            await run(shell, `${base} --raw --json-schema-file /home/schema.json -p "Go"`);
+            expect(wllamaRequests[1].json_schema).toEqual(schema);
+        });
+
+        it('applies constraints with --no-stream, piped stdin and a prompt file', async () => {
+            await run(shell, `${base} --no-stream --grammar-file /home/grammar.gbnf -p "Go"`);
+            expect(wllamaRequests[0].stream).toBe(false);
+            expect(wllamaRequests[0].grammar).toBe(grammar);
+
+            await run(shell, `echo "Piped" | ${base} --json-schema-file /home/schema.json`);
+            expect(wllamaRequests[1].json_schema).toEqual(schema);
+
+            await run(shell, `${base} --grammar-file /home/grammar.gbnf -f /home/prompt.txt`);
+            expect(wllamaRequests[2].grammar).toBe(grammar);
+        });
+
+        it('sends no constraint fields when none are given', async () => {
+            await run(shell, `${base} -p "Plain"`);
+            expect(wllamaRequests[0]).not.toHaveProperty('grammar');
+            expect(wllamaRequests[0]).not.toHaveProperty('json_schema');
+        });
+
+        it('keeps the other sampling options alongside a constraint', async () => {
+            await run(shell, `${base} --temp 0.1 --top-k 5 -n 32 --grammar-file /home/grammar.gbnf -p "Go"`);
+            expect(wllamaRequests[0]).toMatchObject({ temperature: 0.1, top_k: 5, max_tokens: 32, grammar });
+        });
+
+        it('rejects combining more than one constraint', async () => {
+            const res = await run(shell, `${base} --grammar 'root ::= "a"' --json-schema '{}' -p "Go"`);
+            expect(res.exitCode).toBe(1);
+            expect(res.errors.join(' ')).toMatch(/only one of --grammar/);
+            expect(wllamaRequests).toHaveLength(0);
+
+            const res2 = await run(shell, `${base} --grammar-file /home/grammar.gbnf --json-schema-file /home/schema.json -p "Go"`);
+            expect(res2.exitCode).toBe(1);
+            expect(res2.errors.join(' ')).toMatch(/only one of/);
+        });
+
+        it('rejects invalid JSON in a schema, inline or from a file', async () => {
+            const inline = await run(shell, `${base} --json-schema '{nope' -p "Go"`);
+            expect(inline.exitCode).toBe(1);
+            expect(inline.errors.join(' ')).toMatch(/invalid JSON schema/);
+
+            const file = await run(shell, `${base} --json-schema-file /home/bad-schema.json -p "Go"`);
+            expect(file.exitCode).toBe(1);
+            expect(file.errors.join(' ')).toMatch(/invalid JSON schema/);
+            expect(wllamaRequests).toHaveLength(0);
+        });
+
+        it('rejects an empty grammar', async () => {
+            const res = await run(shell, `${base} --grammar-file /home/empty.gbnf -p "Go"`);
+            expect(res.exitCode).toBe(1);
+            expect(res.errors.join(' ')).toMatch(/grammar is empty/);
+        });
+
+        it('reports a missing grammar or schema file without loading the model', async () => {
+            const g = await run(shell, `${base} --grammar-file /home/nope.gbnf -p "Go"`);
+            expect(g.exitCode).toBe(1);
+            expect(g.errors.join(' ')).toMatch(/nope\.gbnf: No such file or directory/);
+
+            const j = await run(shell, `${base} --json-schema-file /home/nope.json -p "Go"`);
+            expect(j.exitCode).toBe(1);
+            expect(j.errors.join(' ')).toMatch(/nope\.json: No such file or directory/);
+            expect(wllamaRequests).toHaveLength(0);
+            expect(wllamaInstances.size).toBe(0);
+        });
+
+        it('documents the options in --help', async () => {
+            const { output } = await run(shell, 'wllama --help');
+            const help = output.join('\n');
+            for (const flag of ['--grammar=', '--grammar-file=', '--json-schema=', '--json-schema-file=']) {
+                expect(help).toContain(flag);
+            }
+        });
+
+        it('output can be captured and used from a script', async () => {
+            const res = await run(shell, `ANSWER=$(${base} --grammar-file /home/grammar.gbnf -p "Go"); echo "got: $ANSWER"`);
+            expect(res.exitCode).toBe(0);
+            expect(res.output.join('\n')).toContain('got: ');
+            expect(wllamaRequests.at(-1).grammar).toBe(grammar);
+        });
     });
 
     it('streams tokens in real time as they are generated and supports --no-stream', async () => {
@@ -1372,6 +1515,42 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         shell.onInput('^D');
         await cmdPromise;
         shell.removeListener('stdOut', onOut);
+    });
+
+    it('applies --grammar-file and --json-schema to every turn of the interactive REPL', async () => {
+        const type = async text => {
+            for (const ch of text) shell.onInput(ch);
+            shell.onInput('Enter');
+            await new Promise(r => setTimeout(r, 20));
+        };
+
+        const grammarCmd = shell.onCommand('wllama -m /home/tinyllama.gguf --grammar-file /home/grammar.gbnf');
+        await new Promise(r => setTimeout(r, 20));
+        await type('one');
+        await type('two');
+        shell.onInput('^D');
+        await grammarCmd;
+        expect(wllamaRequests).toHaveLength(2);
+        expect(wllamaRequests.every(r => r.grammar === 'root ::= "yes" | "no"')).toBe(true);
+
+        wllamaRequests.length = 0;
+        const schemaCmd = shell.onCommand('wllama -m /home/tinyllama.gguf -j \'{"type":"boolean"}\'');
+        await new Promise(r => setTimeout(r, 20));
+        await type('three');
+        shell.onInput('^D');
+        await schemaCmd;
+        expect(wllamaRequests).toHaveLength(1);
+        expect(wllamaRequests[0].json_schema).toEqual({ type: 'boolean' });
+    });
+
+    it('refuses to start the interactive REPL with an invalid schema', async () => {
+        const errors = [];
+        const onErr = line => errors.push(line);
+        shell.on('stdErr', onErr);
+        await shell.onCommand('wllama -m /home/tinyllama.gguf --json-schema-file /home/bad-schema.json');
+        shell.removeListener('stdErr', onErr);
+        expect(errors.join(' ')).toMatch(/invalid JSON schema/);
+        expect(wllamaRequests).toHaveLength(0);
     });
 
     it('persists pulled remote models to the brsh filesystem via `--persist`, `-o`, and `wllama pull`', async () => {
