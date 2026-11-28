@@ -133,6 +133,9 @@ jobs:
           done
 
       - name: Run busybox individual tests
+        env:
+          # Some individual tests (eg tail-n-works) write their fixtures with $ECHO -ne
+          ECHO: /bin/echo
         run: |
           total_pass=0
           total_fail=0
