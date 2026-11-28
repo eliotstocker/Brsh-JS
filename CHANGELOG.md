@@ -1,3 +1,10 @@
+## [3.10.7](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.6...v3.10.7) (2026-11-28)
+
+
+### Bug Fixes
+
+* enhanced POSIX compatibility ([076650d](https://github.com/eliotstocker/Brsh-JS/commit/076650d1e7db7d43502f389517879b8faca6ada9))
+
 ## [3.10.6](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.5...v3.10.6) (2026-11-28)
 
 
