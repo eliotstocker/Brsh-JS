@@ -1,3 +1,10 @@
+## [3.10.6](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.5...v3.10.6) (2026-11-28)
+
+
+### Bug Fixes
+
+* **read:** add -r, backslash handling, multiple names and IFS splitting ([87235c1](https://github.com/eliotstocker/Brsh-JS/commit/87235c1c065481defa0bf5ca0973994c34106af6))
+
 ## [3.10.5](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.4...v3.10.5) (2026-11-27)
 
 
