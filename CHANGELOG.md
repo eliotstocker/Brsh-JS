@@ -1,3 +1,10 @@
+# [3.11.0](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.10...v3.11.0) (2026-11-28)
+
+
+### Features
+
+* **wllama:** add GBNF grammar and JSON Schema constraints ([46c500c](https://github.com/eliotstocker/Brsh-JS/commit/46c500cd2a367e03501685926e7eebcd35fed29e))
+
 ## [3.10.10](https://github.com/eliotstocker/Brsh-JS/compare/v3.10.9...v3.10.10) (2026-11-28)
 
 
