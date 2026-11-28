@@ -41,15 +41,15 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `$?` — last exit code
 - [x] `$#` — positional parameter count
 - [x] `$1` … `$n` — positional parameters
-- [ ] `$@` — all positional params as separate words
-- [ ] `$*` — all positional params as single word
+- [x] `$@` — all positional params as separate words *(`"$@"` in scripts, functions and `for` lists; expands to nothing with no args)*
+- [x] `$*` — all positional params joined into one word *(unquoted form tested; `"$*"` not separately verified)*
 - [ ] `$0` — script / shell name
 - [ ] `$$` — current PID *(can be faked)*
-- [ ] `${var:-default}` — use default if unset/empty
-- [ ] `${var:=default}` — assign default if unset/empty
-- [ ] `${var:?error}` — error if unset/empty
-- [ ] `${var:+alt}` — use alt if set
-- [ ] `${#var}` — string length
+- [x] `${var:-default}` — use default if unset/empty *(defaults may contain quotes, `$VAR` and `$(...)`; the colon-less `${var-default}` forms behave identically since empty variables are stored as unset)*
+- [x] `${var:=default}` — assign default if unset/empty
+- [x] `${var:?error}` — error if unset/empty *(fails the command; does not yet exit a non-interactive shell)*
+- [x] `${var:+alt}` — use alt if set
+- [x] `${#var}` — string length
 - [ ] `${var#pattern}` — strip shortest prefix
 - [ ] `${var##pattern}` — strip longest prefix
 - [ ] `${var%pattern}` — strip shortest suffix
@@ -58,7 +58,8 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [ ] `${var//from/to}` — replace all *(non-POSIX but common)*
 
 ### Expansion
-- [x] Command substitution `$(cmd)`
+- [x] Command substitution `$(cmd)` (nested quotes, parens and `;` `&&` `||` `|` inside are respected; output is never re-expanded)
+- [x] Single quotes and `\$` keep `$` literal
 - [x] Arithmetic expansion `$((expr))` (both `$VAR` and bare `VAR` forms)
 - [ ] Tilde expansion (`~`, `~user`)
 - [ ] Filename glob expansion (`*`, `?`, `[a-z]`)
@@ -102,13 +103,13 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `grep`
 - [ ] `wc`
 - [ ] `head`
-- [ ] `tail`
+- [x] `tail` *(`-n`, `-c`, `+N`, legacy `-N`, multiple files, stdin; `-f` ignored)*
 - [ ] `sort`
 - [ ] `uniq`
 - [ ] `tr`
 - [ ] `cut`
 - [ ] `tee` *(requires pipe support)*
-- [ ] `sed`
+- [x] `sed` *(s with g/p/i/N flags, d, p, q, y, `=`, line/`$`/regex addresses, ranges, `!`, `-n`, `-e`, `-E`/`-r`, BRE by default; no a/i/c, `{}` blocks, hold space, `-f` or `-i`)*
 - [ ] `awk`
 
 ### Filesystem
@@ -139,7 +140,7 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 - [x] `which`
 - [x] `true`
 - [x] `false`
-- [x] `read`
+- [x] `read` (`-r`, backslash escapes and line continuation, multiple names, `IFS` splitting, `-n`, `-p`, `-t`; escaped separators still split, empty `IFS` unreachable from the shell)
 - [x] `alias`
 - [x] `exit`
 
@@ -149,12 +150,12 @@ Track progress toward a POSIX-compliant `sh` implementation in Brsh-JS.
 
 1. **Input redirect (`<`)** — needed for many real scripts
 2. **`shift` / `unset` / `:`** — small special builtins, high frequency in scripts
-3. **`$@` / `$*` / `$0`** — needed for argument-forwarding patterns
-4. **`${var:-default}` parameter expansion forms** — very common in real scripts
-5. **`wc`, `head`, `tail`, `sort`, `uniq`, `tr`, `cut`** — most-used text utilities
+3. **`$0`** — script / shell name (currently expands to empty in scripts)
+4. **`${var#pat}` / `${var%pat}` pattern removal** — the remaining common parameter expansion forms
+5. **`wc`, `head`, `sort`, `uniq`, `tr`, `cut`** — most-used text utilities
 6. **`basename` / `dirname`** — common path helpers
 7. **`local`** — function-scoped variables
 8. **`date`, `sleep`** — misc utilities
 9. **`set -u` enforcement** — nounset mode
 10. **Glob expansion** — needed for `ls *.txt` style usage
-11. **`sed` / `awk`** — complex; consider wasm or partial implementation
+11. **`awk`**, and the missing `sed` pieces (`a`/`i`/`c`, blocks, `-i`) — complex; consider wasm or partial implementation

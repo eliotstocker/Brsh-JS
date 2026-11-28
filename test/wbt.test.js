@@ -1150,6 +1150,28 @@ describe('WBT Wllama v3 WASM & WebGPU package (`wllama`, `llama`, `llama-cli`)',
         expect(runHelpRes.output.join('\n')).toContain('Usage: wllama');
     });
 
+    it('captures wllama output in $(...) and keeps it intact when expanded', async () => {
+        await run(shell, 'REPLY_TEXT=$(wllama -m /home/tinyllama.gguf -p "Hello (world) {x}")');
+        const captured = shell.context.getVar('REPLY_TEXT');
+        expect(captured).toContain('Hello (world) {x}');
+
+        const res = await run(shell, 'echo "$REPLY_TEXT"');
+        expect(res.output.join('\n')).toBe(captured);
+    });
+
+    it('uses wllama output in a ${var:-default} and inside a larger command', async () => {
+        const res = await run(shell, 'echo "got: ${NOPE:-$(wllama -m /home/tinyllama.gguf -p "hi there")}"');
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('\n')).toContain('got: ');
+        expect(res.output.join('\n')).toContain('hi there');
+    });
+
+    it('pipes captured wllama output through other commands', async () => {
+        const res = await run(shell, 'wllama -m /home/tinyllama.gguf -p "one two" | tail -n 1');
+        expect(res.exitCode).toBe(0);
+        expect(res.output.join('\n')).toContain('one two');
+    });
+
     it('installs wllama from the built ESM browser bundle without __dirname', async () => {
         const { default: BundledWbt } = await import('../dist/wbt.es.js');
         const ConfiguredBundledWbt = BundledWbt.configure({

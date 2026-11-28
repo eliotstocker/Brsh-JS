@@ -779,3 +779,162 @@ describe('unquoted expansion word splitting', () => {
 });
 
 
+describe('parameter expansion ${var:-default} family', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    const out = async cmd => (await run(shell, cmd)).output;
+
+    it(':- uses the default when unset or empty', async () => {
+        expect(await out('echo ${NOPE:-fallback}')).toEqual(['fallback']);
+        await shell.onCommand('export SET=value');
+        expect(await out('echo ${SET:-fallback}')).toEqual(['value']);
+    });
+
+    it('- without a colon behaves the same', async () => {
+        expect(await out('echo ${NOPE-fallback}')).toEqual(['fallback']);
+    });
+
+    it(':= assigns the default', async () => {
+        expect(await out('echo ${NEW:=assigned}')).toEqual(['assigned']);
+        expect(shell.context.getVar('NEW')).toBe('assigned');
+    });
+
+    it(':+ uses the alternative only when set', async () => {
+        expect(await out('echo ${NOPE:+alt}')).toEqual([]);
+        await shell.onCommand('export SET=1');
+        expect(await out('echo ${SET:+alt}')).toEqual(['alt']);
+    });
+
+    it(':? errors when unset and passes when set', async () => {
+        const res = await run(shell, 'echo ${NOPE:?must be set}');
+        expect(res.errors.join(' ')).toContain('NOPE: must be set');
+        expect(res.exitCode).toBeGreaterThan(0);
+        expect(res.output).toEqual([]);
+        await shell.onCommand('export SET=1');
+        expect(await out('echo ${SET:?must be set}')).toEqual(['1']);
+    });
+
+    it('${#var} gives the string length', async () => {
+        await shell.onCommand('export WORD=hello');
+        expect(await out('echo ${#WORD}')).toEqual(['5']);
+    });
+
+    it('the default can contain spaces and quotes when quoted', async () => {
+        expect(await out('echo "${NOPE:-two words}"')).toEqual(['two words']);
+        expect(await out('echo ${NOPE:-"two words"}')).toEqual(['two words']);
+    });
+
+    it('the default can reference another variable', async () => {
+        await shell.onCommand('export OTHER=from-other');
+        expect(await out('echo ${NOPE:-$OTHER}')).toEqual(['from-other']);
+        expect(await out('echo ${NOPE:-${OTHER}}')).toEqual(['from-other']);
+    });
+
+    it('the default can be a command substitution containing quotes and parens', async () => {
+        expect(await out('echo "${NOPE:-$(echo "a b")}"')).toEqual(['a b']);
+        expect(await out('echo "${NOPE:-$(echo $((1 + 2)))}"')).toEqual(['3']);
+    });
+
+    it('a } inside a quoted command substitution does not end the expansion early', async () => {
+        expect(await out('echo "${NOPE:-$(echo "x}y")}"')).toEqual(['x}y']);
+    });
+
+    it('is not re-expanded when the value contains a dollar', async () => {
+        await shell.onCommand('export DOLLAR=\'$HOME\'');
+        expect(await out('echo ${DOLLAR}')).toEqual(['$HOME']);
+    });
+
+    it('still expands plain $VAR and ${VAR}', async () => {
+        await shell.onCommand('export A=1');
+        expect(await out('echo $A${A}$A')).toEqual(['111']);
+    });
+
+    it('works inside assignments', async () => {
+        await shell.onCommand('FINAL=${FINAL:-default}');
+        expect(shell.context.getVar('FINAL')).toBe('default');
+    });
+});
+
+describe('literal dollar signs', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    it('single quotes block expansion', async () => {
+        await shell.onCommand('export A=1');
+        const { output } = await run(shell, `echo '$A \${A:-x} $(echo hi)'`);
+        expect(output).toEqual(['$A ${A:-x} $(echo hi)']);
+    });
+
+    it('a backslash blocks expansion outside and inside double quotes', async () => {
+        await shell.onCommand('export A=1');
+        expect((await run(shell, 'echo \\$A')).output).toEqual(['$A']);
+        expect((await run(shell, 'echo "\\$A"')).output).toEqual(['$A']);
+    });
+});
+
+describe('multi-line strings, arithmetic and substitution output', () => {
+    let shell;
+    beforeEach(async () => { shell = await createShell(); });
+
+    const out = async cmd => (await run(shell, cmd)).output;
+
+    it('keeps a multi-line double-quoted string as one argument', async () => {
+        expect(await out('echo "line one\nline two"')).toEqual(['line one', 'line two']);
+    });
+
+    it('assigns a multi-line double-quoted string to a variable', async () => {
+        await shell.onCommand('MSG="line one\nline two"');
+        expect(shell.context.getVar('MSG')).toBe('line one\nline two');
+    });
+
+    it('expands a variable holding newlines inside quotes', async () => {
+        await shell.onCommand('MSG="a\nb"');
+        expect(await out('echo "$MSG"')).toEqual(['a', 'b']);
+    });
+
+    it('$((n + 1)) with spaces, assigned and quoted', async () => {
+        await shell.onCommand('n=1');
+        await shell.onCommand('n=$((n + 1))');
+        expect(shell.context.getVar('n')).toBe('2');
+        expect(await out('echo $((n + 1))')).toEqual(['3']);
+        expect(await out('echo "$((n * 3))"')).toEqual(['6']);
+    });
+
+    it('arithmetic works as a default and inside a default', async () => {
+        await shell.onCommand('n=4');
+        expect(await out('echo ${NOPE:-$((n + 1))}')).toEqual(['5']);
+    });
+
+    it('does not split on ; inside $( )', async () => {
+        await shell.onCommand('X=$(echo a; echo b)');
+        expect(shell.context.getVar('X')).toBe('a\nb');
+    });
+
+    it('does not split on && or || or | inside $( )', async () => {
+        expect(await out('echo "$(echo a && echo b)"')).toEqual(['a', 'b']);
+        expect(await out('echo "$(false || echo c)"')).toEqual(['c']);
+        expect(await out('echo "$(echo hello | cat)"')).toEqual(['hello']);
+    });
+
+    it('does not split on operators inside ${ } defaults', async () => {
+        expect(await out('echo "${NOPE:-a;b}"')).toEqual(['a;b']);
+        expect(await out('echo "${NOPE:-a|b}"')).toEqual(['a|b']);
+    });
+
+    it('still splits operators after a substitution', async () => {
+        expect(await out('echo $(echo a) ; echo b')).toEqual(['a', 'b']);
+        expect(await out('echo ${NOPE:-x} && echo y')).toEqual(['x', 'y']);
+    });
+
+    it('captured output containing ) } quotes and $ is not re-parsed', async () => {
+        await shell.onCommand(`X=$(echo 'a) b} "c" $HOME')`);
+        expect(shell.context.getVar('X')).toBe('a) b} "c" $HOME');
+        expect(await out('echo "$X"')).toEqual(['a) b} "c" $HOME']);
+    });
+
+    it('captured multi-line output keeps its lines inside quotes', async () => {
+        await shell.onCommand('X=$(echo a; echo b)');
+        expect(await out('echo "$X"')).toEqual(['a', 'b']);
+    });
+});

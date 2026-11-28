@@ -514,3 +514,220 @@ describe('test new operators', () => {
         expect(exitCode).toBe(0);
     });
 });
+
+describe('tail', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'nums.txt': '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n',
+                    'short.txt': 'a\nb\n',
+                    'abc.txt': 'abcdef\n',
+                    'empty.txt': ''
+                }
+            }
+        });
+    });
+
+    it('prints the last 10 lines by default', async () => {
+        const { output } = await run(shell, 'tail /home/nums.txt');
+        expect(output).toEqual(['3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
+    });
+
+    it('-n N prints the last N lines', async () => {
+        const { output } = await run(shell, 'tail -n 2 /home/nums.txt');
+        expect(output).toEqual(['11', '12']);
+    });
+
+    it('accepts -nN and legacy -N', async () => {
+        expect((await run(shell, 'tail -n3 /home/nums.txt')).output).toEqual(['10', '11', '12']);
+        expect((await run(shell, 'tail -1 /home/nums.txt')).output).toEqual(['12']);
+    });
+
+    it('-n +N starts at line N', async () => {
+        const { output } = await run(shell, 'tail -n +11 /home/nums.txt');
+        expect(output).toEqual(['11', '12']);
+    });
+
+    it('-n 0 prints nothing', async () => {
+        const { output } = await run(shell, 'tail -n 0 /home/nums.txt');
+        expect(output).toEqual([]);
+    });
+
+    it('prints everything when the file is shorter than N', async () => {
+        const { output } = await run(shell, 'tail -n 5 /home/short.txt');
+        expect(output).toEqual(['a', 'b']);
+    });
+
+    it('-c N prints the last N bytes', async () => {
+        const { output } = await run(shell, 'tail -c 4 /home/abc.txt');
+        expect(output).toEqual(['def']);
+    });
+
+    it('prints nothing for an empty file', async () => {
+        const { output } = await run(shell, 'tail /home/empty.txt');
+        expect(output).toEqual([]);
+    });
+
+    it('reads from a pipe', async () => {
+        const { output } = await run(shell, 'cat /home/nums.txt | tail -n 2');
+        expect(output).toEqual(['11', '12']);
+    });
+
+    it('prints headers for multiple files', async () => {
+        const { output } = await run(shell, 'tail -n 1 /home/short.txt /home/abc.txt');
+        expect(output).toEqual(['==> /home/short.txt <==', 'b', '', '==> /home/abc.txt <==', 'abcdef']);
+    });
+
+    it('errors on a missing file but still reads the others', async () => {
+        const { output, errors, exitCode } = await run(shell, 'tail -n 1 /home/nope /home/short.txt');
+        expect(errors.join(' ')).toMatch(/nope.*No such file/);
+        expect(output).toContain('b');
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors on an invalid count', async () => {
+        const { errors, exitCode } = await run(shell, 'tail -n abc /home/short.txt');
+        expect(errors.join(' ')).toMatch(/invalid number/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});
+
+describe('sed', () => {
+    let shell;
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                home: {
+                    'f.txt': 'one\ntwo\nthree\nfour\nfive\n',
+                    'words.txt': 'foo bar foo baz foo\n'
+                }
+            }
+        });
+    });
+
+    const sed = async args => (await run(shell, `sed ${args}`)).output;
+
+    it('substitutes the first match per line', async () => {
+        expect(await sed(`'s/foo/X/' /home/words.txt`)).toEqual(['X bar foo baz foo']);
+    });
+
+    it('g flag substitutes all matches', async () => {
+        expect(await sed(`'s/foo/X/g' /home/words.txt`)).toEqual(['X bar X baz X']);
+    });
+
+    it('numeric flag substitutes the Nth match, with g from the Nth on', async () => {
+        expect(await sed(`'s/foo/X/2' /home/words.txt`)).toEqual(['foo bar X baz foo']);
+        expect(await sed(`'s/foo/X/2g' /home/words.txt`)).toEqual(['foo bar X baz X']);
+    });
+
+    it('i flag ignores case', async () => {
+        expect(await sed(`'s/FOO/X/i' /home/words.txt`)).toEqual(['X bar foo baz foo']);
+    });
+
+    it('supports & and backreferences in the replacement', async () => {
+        expect(await sed(`'s/t\\(w\\)o/[&:\\1]/' /home/f.txt`)).toContain('[two:w]');
+    });
+
+    it('accepts other delimiters and escaped delimiters', async () => {
+        expect((await sed(`'s,o,0,g' /home/f.txt`))[0]).toBe('0ne');
+        expect(await sed(`'s/foo/a\\/b/' /home/words.txt`)).toEqual(['a/b bar foo baz foo']);
+    });
+
+    it('BRE treats + and ( literally, escaped forms are operators', async () => {
+        await shell.onCommand('echo "a+b" > /home/p.txt');
+        expect(await sed(`'s/a+b/X/' /home/p.txt`)).toEqual(['X']);
+        expect((await sed(`'s/o\\+/0/' /home/f.txt`))[0]).toBe('0ne');
+    });
+
+    it('-E uses extended regex', async () => {
+        expect((await sed(`-E 's/o+|w/0/' /home/f.txt`))[1]).toBe('t0o');
+        expect((await sed(`-E 's/(t)(w)/\\2\\1/' /home/f.txt`))[1]).toBe('wto');
+    });
+
+    it('supports POSIX character classes', async () => {
+        expect(await sed(`'s/[[:alpha:]]*/X/' /home/words.txt`)).toEqual(['X bar foo baz foo']);
+    });
+
+    it('-n with p prints only matching lines', async () => {
+        expect(await sed(`-n '/t/p' /home/f.txt`)).toEqual(['two', 'three']);
+    });
+
+    it('s///p with -n prints only substituted lines', async () => {
+        expect(await sed(`-n 's/o/0/p' /home/f.txt`)).toEqual(['0ne', 'tw0', 'f0ur']);
+    });
+
+    it('d deletes lines by number, regex and range', async () => {
+        expect(await sed(`'2d' /home/f.txt`)).toEqual(['one', 'three', 'four', 'five']);
+        expect(await sed(`'/o/d' /home/f.txt`)).toEqual(['three', 'five']);
+        expect(await sed(`'2,4d' /home/f.txt`)).toEqual(['one', 'five']);
+    });
+
+    it('$ addresses the last line', async () => {
+        expect(await sed(`'$d' /home/f.txt`)).toEqual(['one', 'two', 'three', 'four']);
+        expect(await sed(`-n '$p' /home/f.txt`)).toEqual(['five']);
+    });
+
+    it('regex ranges start at a match and end at a later match', async () => {
+        expect(await sed(`-n '/two/,/four/p' /home/f.txt`)).toEqual(['two', 'three', 'four']);
+    });
+
+    it('a numeric end address behind the start is a single line', async () => {
+        expect(await sed(`-n '3,1p' /home/f.txt`)).toEqual(['three']);
+    });
+
+    it('! negates the address', async () => {
+        expect(await sed(`-n '2!p' /home/f.txt`)).toEqual(['one', 'three', 'four', 'five']);
+    });
+
+    it('q quits after printing the current line', async () => {
+        expect(await sed(`'2q' /home/f.txt`)).toEqual(['one', 'two']);
+    });
+
+    it('= prints line numbers', async () => {
+        expect(await sed(`-n '$=' /home/f.txt`)).toEqual(['5']);
+    });
+
+    it('y transliterates characters', async () => {
+        expect((await sed(`'y/on/ON/' /home/f.txt`))[0]).toBe('ONe');
+    });
+
+    it('runs multiple -e scripts and ; separated commands in order', async () => {
+        expect((await sed(`-e '1d' -e 's/o/0/' /home/f.txt`))[0]).toBe('tw0');
+        expect((await sed(`'1d;s/o/0/' /home/f.txt`))[0]).toBe('tw0');
+    });
+
+    it('reads from a pipe', async () => {
+        const { output } = await run(shell, 'cat /home/f.txt | sed -n 2p');
+        expect(output).toEqual(['two']);
+    });
+
+    it('an empty regex reuses the last one', async () => {
+        expect((await sed(`'/two/s//2/' /home/f.txt`))[1]).toBe('2');
+    });
+
+    it('errors on an unknown command', async () => {
+        const { errors, exitCode } = await run(shell, `sed 'k' /home/f.txt`);
+        expect(errors.join(' ')).toMatch(/unknown command/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors on an unterminated s command', async () => {
+        const { errors, exitCode } = await run(shell, `sed 's/a/b' /home/f.txt`);
+        expect(errors.join(' ')).toMatch(/unterminated/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors without a script', async () => {
+        const { errors, exitCode } = await run(shell, 'sed');
+        expect(errors.join(' ')).toMatch(/usage/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+
+    it('errors on a missing file', async () => {
+        const { errors, exitCode } = await run(shell, `sed p /home/nope`);
+        expect(errors.join(' ')).toMatch(/No such file/);
+        expect(exitCode).toBeGreaterThan(0);
+    });
+});

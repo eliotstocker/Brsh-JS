@@ -19,7 +19,6 @@ const BaseFileSystem = require('./lib/BaseFileSystem');
 const BinaryContainer = require('./lib/BinaryContainer');
 const { isAsyncFilesystemSource, resolveFilesystemSource } = BinaryContainer;
 
-const variableRegex = /\$(?:\{([\w\d?#@*-]+)\}|([\w\d]+|[?#@*-]))/g;
 
 
 const EventEmitter = events.EventEmitter || events.default || events;
@@ -29,6 +28,9 @@ String.prototype.regexIndexOf = function(regex, startpos) {
     return (indexOf >= 0) ? (indexOf + (startpos || 0)) : indexOf;
 };
 require('string.prototype.matchall').shim();
+
+//stands in for a $ that must not expand (single quoted or backslash escaped) until expansion is done
+const LITERAL_DOLLAR = '\u0000';
 
 class Shell extends EventEmitter {
     constructor(options) {
@@ -1305,6 +1307,15 @@ class Shell extends EventEmitter {
 
         while (i < input.length) {
             const ch = input[i];
+            //operators and quotes inside $(...) / ${...} belong to the group, not to us
+            if (!sq && ch === '$' && (input[i + 1] === '(' || input[i + 1] === '{')) {
+                const end = Shell._skipGroup(input, i);
+                if (end > -1) {
+                    current += input.slice(i, end);
+                    i = end;
+                    continue;
+                }
+            }
             if (ch === "'" && !dq) { sq = !sq; current += ch; i++; continue; }
             if (ch === '"' && !sq) { dq = !dq; current += ch; i++; continue; }
             if (!sq && !dq) {
@@ -1443,7 +1454,7 @@ class Shell extends EventEmitter {
                 continue;
             }
 
-            const expanded = await this._replaceVariables(rawValue);
+            const expanded = (await this._replaceVariables(rawValue)).replaceAll(LITERAL_DOLLAR, '$');
 
             // Variable / alias assignments (VAR=val, export VAR=val, alias foo=bar)
             // and explicitly quoted tokens do not undergo IFS field splitting.
@@ -1478,31 +1489,107 @@ class Shell extends EventEmitter {
         return array.filter(item => item.length > 0);
     }
 
+    //single left to right pass so substituted output is never re-expanded
     async _replaceVariables(part) {
-        // 1. Arithmetic substitution $(( expr ))
-        const arithMatches = [...part.matchAll(/\$\(\(([^)]+)\)\)/g)];
-        for (const m of arithMatches) {
-            part = part.replace(m[0], String(this._evalArithmetic(m[1])));
+        let out = '';
+        for(let i = 0; i < part.length; i++) {
+            if(part[i] !== '$') {
+                out += part[i];
+                continue;
+            }
+
+            if(part[i + 1] === '(' || part[i + 1] === '{') {
+                const end = Shell._skipGroup(part, i);
+                if(end > -1) {
+                    out += await this._expandGroup(part.slice(i, end));
+                    i = end -1;
+                    continue;
+                }
+            }
+
+            const m = /^\$(?:([\w]+)|([?#@*-]))/.exec(part.slice(i, i + 256));
+            if(m) {
+                out += String(this.context.getVar(m[1] || m[2]));
+                i += m[0].length -1;
+                continue;
+            }
+            out += '$';
+        }
+        return out;
+    }
+
+    //text is a whole $(( )), $( ) or ${ } group
+    async _expandGroup(text) {
+        if(text.startsWith('$((') && text.endsWith('))')) {
+            return String(this._evalArithmetic(text.slice(3, -2)));
+        }
+        if(text.startsWith('$(')) {
+            return this._runAndCapture(text.slice(2, -1));
         }
 
-        // 2. Command substitution $( cmd ) — negative lookahead excludes $((
-        const cmdMatches = [...part.matchAll(/\$\((?!\()([^)]+)\)/g)];
-        for (const m of cmdMatches) {
-            const output = await this._runAndCapture(m[1]);
-            part = part.replace(m[0], output);
+        const body = text.slice(2, -1);
+        const length = /^#(\w+)$/.exec(body);
+        if(length) {
+            return String(this.context.getVar(length[1]).length);
         }
 
-        // 3. Variable substitution $VAR and ${VAR}
-        const matches = part.matchAll(variableRegex);
-        let match = matches.next();
-        while (!match.done) {
-            const varName = match.value[1] || match.value[2];
-            const value = this.context.getVar(varName);
-            part = part.replace(new RegExp(Shell._escapeRegExp(match.value[0]), 'g'), String(value));
-            match = matches.next();
+        //context cant tell unset from empty, so the colon and non colon forms behave the same
+        const m = /^(\w+|[?#@*-])(?::?([-=?+])([\s\S]*))?$/.exec(body);
+        if(!m) {
+            return text;
         }
 
-        return part;
+        const [, name, op, word = ''] = m;
+        const value = String(this.context.getVar(name));
+        const expandWord = () => this._replaceVariables(Shell._sanitiseCommandPart(word));
+        if(!op) {
+            return value;
+        }
+        if(op === '+') {
+            return value !== '' ? expandWord() : '';
+        }
+        if(value !== '') {
+            return value;
+        }
+        if(op === '-') {
+            return expandWord();
+        }
+        if(op === '=') {
+            const assigned = await expandWord();
+            this.context.setVar(name, assigned);
+            return assigned;
+        }
+        throw new Error(`${name}: ${word || 'parameter null or not set'}`);
+    }
+
+    //returns the index after the group opened by the $( or ${ at start, or -1 if never closed.
+    //quotes and nested groups are respected so a ) or } inside them doesnt end it early
+    static _skipGroup(str, start) {
+        const stack = [];
+        for(let i = start; i < str.length; i++) {
+            const ch = str[i];
+            const top = stack[stack.length -1];
+            if(top === "'") {
+                ch === "'" && stack.pop();
+            } else if(ch === '\\') {
+                i++;
+            } else if(ch === '"') {
+                top === '"' ? stack.pop() : stack.push('"');
+            } else if(ch === "'" && top !== '"') {
+                stack.push("'");
+            } else if(ch === '$' && (str[i + 1] === '{' || str[i + 1] === '(')) {
+                stack.push(str[i + 1] === '{' ? '}' : ')');
+                i++;
+            } else if(ch === '(' && top !== '"') {
+                stack.push(')');
+            } else if(ch === top) {
+                stack.pop();
+                if(stack.length < 1) {
+                    return i + 1;
+                }
+            }
+        }
+        return -1;
     }
 
     _evalArithmetic(expr) {
@@ -1616,7 +1703,6 @@ class Shell extends EventEmitter {
         const separator = /\s/g;
         let singleQuoteOpen = false;
         let doubleQuoteOpen = false;
-        let dollarDepth = 0;
         let tokenBuffer = [];
         let tokenHasQuote = false;
         const parts = [];
@@ -1624,19 +1710,21 @@ class Shell extends EventEmitter {
         for (let i = 0; i < string.length; i++) {
             const ch = string[i];
 
-            // Inside $(...) or $((...)) — keep everything verbatim, track nesting
-            if (dollarDepth > 0) {
-                tokenBuffer.push(ch);
-                if (ch === '(') dollarDepth++;
-                else if (ch === ')') dollarDepth--;
-                continue;
+            //$(...), $((...)) and ${...} are kept verbatim, whatever quotes or spaces are inside
+            if (!singleQuoteOpen && ch === '$' && (string[i + 1] === '(' || string[i + 1] === '{')) {
+                const end = Shell._skipGroup(string, i);
+                if (end > -1) {
+                    tokenBuffer.push(string.slice(i, end));
+                    i = end -1;
+                    continue;
+                }
             }
 
             // Escape handling inside double quotes
             if (doubleQuoteOpen && ch === '\\' && i + 1 < string.length) {
                 const next = string[i + 1];
                 if (next === '"' || next === '\\' || next === '$') {
-                    tokenBuffer.push(next);
+                    tokenBuffer.push(next === '$' ? LITERAL_DOLLAR : next);
                     i++;
                     continue;
                 }
@@ -1645,7 +1733,7 @@ class Shell extends EventEmitter {
             // Escape handling outside quotes
             if (!singleQuoteOpen && !doubleQuoteOpen && ch === '\\' && i + 1 < string.length) {
                 const next = string[++i];
-                tokenBuffer.push(next);
+                tokenBuffer.push(next === '$' ? LITERAL_DOLLAR : next);
                 if (next === '"' || next === "'") {
                     tokenHasQuote = true;
                 }
@@ -1665,15 +1753,6 @@ class Shell extends EventEmitter {
             }
 
             if (!singleQuoteOpen && !doubleQuoteOpen) {
-                // Start of $( or $(( substitution — consume the opening '(' too
-                if (ch === '$' && i + 1 < string.length && string[i + 1] === '(') {
-                    dollarDepth = 1;
-                    tokenBuffer.push('$');
-                    tokenBuffer.push('(');
-                    i++;
-                    continue;
-                }
-
                 // Whitespace splits tokens
                 if (ch.match(separator)) {
                     if (tokenBuffer.length > 0 || tokenHasQuote) {
@@ -1685,7 +1764,7 @@ class Shell extends EventEmitter {
                 }
             }
 
-            tokenBuffer.push(ch);
+            tokenBuffer.push(ch === '$' && singleQuoteOpen ? LITERAL_DOLLAR : ch);
         }
 
         if (tokenBuffer.length > 0 || tokenHasQuote) {

@@ -610,3 +610,100 @@ describe('multiline quotes and line continuations in scripts', () => {
     });
 });
 
+
+describe('parameter expansion and literal dollars inside scripts', () => {
+    let shell;
+    const scripts = {
+        'for-default.sh': '#!/sh.js\nfor i in ${LIST:-a b c}; do\necho $i\ndone',
+        'case-default.sh': '#!/sh.js\ncase ${MODE:-fast} in\nfast) echo quick;;\nslow) echo steady;;\nesac',
+        'assign.sh': '#!/sh.js\nNAME=${NAME:-guest}\necho hello $NAME',
+        'nested.sh': '#!/sh.js\nOUT="${NOPE:-$(echo "a b")}"\necho "$OUT"',
+        'sed-dollar.sh': '#!/sh.js\ncat /data/f.txt | sed -n \'$p\'',
+        'tail-pipe.sh': '#!/sh.js\ncat /data/f.txt | tail -n 2',
+        'length.sh': '#!/sh.js\nW=hello\necho ${#W}',
+        'single-quote.sh': '#!/sh.js\nA=1\necho \'$A\''
+    };
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {
+                scripts,
+                data: {'f.txt': 'one\ntwo\nthree\n'}
+            },
+            permissions: execPerms(...Object.keys(scripts).map(n => `/scripts/${n}`))
+        });
+    });
+
+    const out = async path => (await run(shell, path)).output;
+
+    it('for list uses a default', async () => {
+        expect(await out('/scripts/for-default.sh')).toEqual(['a', 'b', 'c']);
+    });
+
+    it('for list uses the variable over the default when set', async () => {
+        await shell.onCommand('export LIST="x y"');
+        expect(await out('/scripts/for-default.sh')).toEqual(['x', 'y']);
+    });
+
+    it('case word uses a default', async () => {
+        expect(await out('/scripts/case-default.sh')).toEqual(['quick']);
+        await shell.onCommand('export MODE=slow');
+        expect(await out('/scripts/case-default.sh')).toEqual(['steady']);
+    });
+
+    it('assigns from a default', async () => {
+        expect(await out('/scripts/assign.sh')).toEqual(['hello guest']);
+        await shell.onCommand('export NAME=eliot');
+        expect(await out('/scripts/assign.sh')).toEqual(['hello eliot']);
+    });
+
+    it('handles a quoted command substitution default', async () => {
+        expect(await out('/scripts/nested.sh')).toEqual(['a b']);
+    });
+
+    it('gives ${#var} length', async () => {
+        expect(await out('/scripts/length.sh')).toEqual(['5']);
+    });
+
+    it('keeps $ literal in single quotes for sed', async () => {
+        expect(await out('/scripts/sed-dollar.sh')).toEqual(['three']);
+    });
+
+    it('keeps $ literal in single quotes for echo', async () => {
+        expect(await out('/scripts/single-quote.sh')).toEqual(['$A']);
+    });
+
+    it('pipes into tail', async () => {
+        expect(await out('/scripts/tail-pipe.sh')).toEqual(['two', 'three']);
+    });
+});
+
+describe('$@ and $*', () => {
+    let shell;
+    const scripts = {
+        'args.sh': '#!/sh.js\necho "n=$#"\nfor a in "$@"; do\necho "[$a]"\ndone\necho "star=$*"\necho "at=$@"',
+        'fn.sh': '#!/sh.js\nf() {\nfor a in "$@"; do\necho "[$a]"\ndone\necho "star=$*"\n}\nf a "b c" d',
+        'none.sh': '#!/sh.js\nfor a in "$@"; do\necho "[$a]"\ndone\necho "n=$#"'
+    };
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {scripts},
+            permissions: execPerms(...Object.keys(scripts).map(n => `/scripts/${n}`))
+        });
+    });
+
+    const out = async cmd => (await run(shell, cmd)).output;
+
+    it('"$@" keeps each argument as a separate word in a script', async () => {
+        expect(await out('/scripts/args.sh p "q r" s')).toEqual(['n=3', '[p]', '[q r]', '[s]', 'star=p q r s', 'at=p q r s']);
+    });
+
+    it('"$@" keeps each argument as a separate word in a function', async () => {
+        expect(await out('/scripts/fn.sh')).toEqual(['[a]', '[b c]', '[d]', 'star=a b c d']);
+    });
+
+    it('"$@" expands to nothing with no arguments', async () => {
+        expect(await out('/scripts/none.sh')).toEqual(['n=0']);
+    });
+});
