@@ -835,3 +835,114 @@ describe('local, shift, unset and : in scripts', () => {
         expect(await out('/scripts/colon-while.sh')).toEqual(['3']);
     });
 });
+
+describe('one-line control flow', () => {
+    let shell;
+    const scripts = {
+        'chain.sh': '#!/sh.js\nif [ "$1" = a ]; then echo A; elif [ "$1" = b ]; then echo B; elif [ "$1" = c ]; then echo C; else echo other; fi\necho done',
+        'if-else.sh': '#!/sh.js\nif [ "$1" = yes ]; then echo y; else echo n; fi',
+        'if-only.sh': '#!/sh.js\nif [ "$1" = yes ]; then echo y; fi\necho after',
+        'mixed.sh': '#!/sh.js\nif [ "$1" = a ]; then\necho A\nelif [ "$1" = b ]; then echo B\nelse echo other\nfi',
+        'for.sh': '#!/sh.js\nfor i in 1 2 3; do echo $i; done\necho end',
+        'for-if.sh': '#!/sh.js\nfor i in 1 2 3; do if [ $i = 2 ]; then echo two; elif [ $i = 3 ]; then echo three; else echo no; fi; done',
+        'while.sh': '#!/sh.js\ni=0\nwhile [ $i -lt 3 ]; do i=$((i + 1)); echo $i; done\necho end',
+        'nested.sh': '#!/sh.js\nif true; then if [ "$1" = x ]; then echo inner-x; else echo inner-other; fi; fi',
+        'trailing.sh': '#!/sh.js\nif true; then echo hi; fi; echo after',
+        'quoted.sh': '#!/sh.js\nif true; then echo "a; b; fi"; fi',
+        'subst.sh': '#!/sh.js\nif true; then echo $(echo x; echo y); fi',
+        'comment.sh': '#!/sh.js\nif true; then echo hi; fi # trailing comment',
+        'fn.sh': '#!/sh.js\nf() {\nif [ "$1" = a ]; then echo A; elif [ "$1" = b ]; then echo B; else echo C; fi\n}\nf a\nf b\nf z',
+        'case.sh': '#!/sh.js\ncase "$1" in\na) echo one; echo uno;;\n*) echo many;;\nesac\nif true; then echo after; fi',
+        'multi-cmd.sh': '#!/sh.js\nif true; then echo one; echo two; echo three; fi',
+        'cond-and.sh': '#!/sh.js\nif [ "$1" = a ] && [ "$2" = b ]; then echo both; else echo not; fi',
+        'cmd-first.sh': '#!/sh.js\necho before; if true; then echo inside; fi'
+    };
+
+    beforeEach(async () => {
+        shell = await createShell({
+            filesystem: {scripts},
+            permissions: execPerms(...Object.keys(scripts).map(n => `/scripts/${n}`))
+        });
+    });
+
+    const out = async cmd => {
+        const res = await run(shell, cmd);
+        expect(res.errors).toEqual([]);
+        return res.output;
+    };
+
+    it('runs the matching branch of an if/elif/else chain on one line', async () => {
+        expect(await out('/scripts/chain.sh a')).toEqual(['A', 'done']);
+        expect(await out('/scripts/chain.sh b')).toEqual(['B', 'done']);
+        expect(await out('/scripts/chain.sh c')).toEqual(['C', 'done']);
+        expect(await out('/scripts/chain.sh zzz')).toEqual(['other', 'done']);
+    });
+
+    it('runs a one-line if/else', async () => {
+        expect(await out('/scripts/if-else.sh yes')).toEqual(['y']);
+        expect(await out('/scripts/if-else.sh no')).toEqual(['n']);
+    });
+
+    it('runs a one-line if with no else, and carries on afterwards', async () => {
+        expect(await out('/scripts/if-only.sh yes')).toEqual(['y', 'after']);
+        expect(await out('/scripts/if-only.sh no')).toEqual(['after']);
+    });
+
+    it('handles then/else commands on the same line as the keyword in a multi-line if', async () => {
+        expect(await out('/scripts/mixed.sh a')).toEqual(['A']);
+        expect(await out('/scripts/mixed.sh b')).toEqual(['B']);
+        expect(await out('/scripts/mixed.sh z')).toEqual(['other']);
+    });
+
+    it('runs a one-line for loop', async () => {
+        expect(await out('/scripts/for.sh')).toEqual(['1', '2', '3', 'end']);
+    });
+
+    it('runs an if/elif/else chain inside a one-line for loop', async () => {
+        expect(await out('/scripts/for-if.sh')).toEqual(['no', 'two', 'three']);
+    });
+
+    it('runs a one-line while loop', async () => {
+        expect(await out('/scripts/while.sh')).toEqual(['1', '2', '3', 'end']);
+    });
+
+    it('handles nested one-line ifs', async () => {
+        expect(await out('/scripts/nested.sh x')).toEqual(['inner-x']);
+        expect(await out('/scripts/nested.sh y')).toEqual(['inner-other']);
+    });
+
+    it('runs commands after fi on the same line', async () => {
+        expect(await out('/scripts/trailing.sh')).toEqual(['hi', 'after']);
+        expect(await out('/scripts/cmd-first.sh')).toEqual(['before', 'inside']);
+    });
+
+    it('does not split on ; inside quotes', async () => {
+        expect(await out('/scripts/quoted.sh')).toEqual(['a; b; fi']);
+    });
+
+    it('does not split on ; inside $( )', async () => {
+        expect(await out('/scripts/subst.sh')).toEqual(['x y']);
+    });
+
+    it('ignores a trailing comment', async () => {
+        expect(await out('/scripts/comment.sh')).toEqual(['hi']);
+    });
+
+    it('works inside a function body', async () => {
+        expect(await out('/scripts/fn.sh')).toEqual(['A', 'B', 'C']);
+    });
+
+    it('runs several commands in one then branch', async () => {
+        expect(await out('/scripts/multi-cmd.sh')).toEqual(['one', 'two', 'three']);
+    });
+
+    it('supports && in the condition', async () => {
+        expect(await out('/scripts/cond-and.sh a b')).toEqual(['both']);
+        expect(await out('/scripts/cond-and.sh a c')).toEqual(['not']);
+    });
+
+    it('leaves ; inside case clauses alone', async () => {
+        expect(await out('/scripts/case.sh a')).toEqual(['one', 'uno', 'after']);
+        expect(await out('/scripts/case.sh q')).toEqual(['many', 'after']);
+    });
+});
